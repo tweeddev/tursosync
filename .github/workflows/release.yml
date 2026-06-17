@@ -75,9 +75,11 @@ jobs:
           workspaces: turso
           key: ${{ steps.pin.outputs.sha }}-${{ matrix.rid }}
 
-      - name: Build native (Release, FTS)
+      - name: Build native (Release, FTS, stripped)
         shell: bash
-        run: cargo build --manifest-path turso/Cargo.toml -p turso_sync_sdk_kit --features turso_sdk_kit/fts --release --target ${{ matrix.target }}
+        # strip=true uses Rust's export-safe strip (keeps the #[no_mangle] turso_sync_* exports) — cuts the
+        # native size dramatically (esp. Linux debuginfo) so the package stays under nuget.org's 250 MB cap.
+        run: cargo build --manifest-path turso/Cargo.toml -p turso_sync_sdk_kit --features turso_sdk_kit/fts --release --target ${{ matrix.target }} --config profile.release.strip=true
 
       - name: Stage native
         shell: bash
