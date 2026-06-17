@@ -1,11 +1,15 @@
 name: Release
 
 # Tag-triggered release. Builds the turso_sync_sdk_kit native (sync engine + tantivy FTS) in RELEASE on a
-# NATIVE runner for each RID (no cross-compilation), gathers them into the package's runtimes/<rid>/native/
-# tree, then packs + pushes all three packages to NuGet.
+# NATIVE runner for each RID (no cross-compilation, engine pinned via turso-engine.json), gathers them into
+# runtimes/<rid>/native/, then packs + pushes all three packages to NuGet via trusted publishing (OIDC —
+# no API key secret).
 #
-# Trigger: push a tag `v1.2.3`, or run manually (workflow_dispatch). Manual runs default to dry-run
-# (pack only). Versioning is owned upstream (Changesets/rig); this only ships.
+# Trigger: push a tag `v1.2.3`, or run manually (workflow_dispatch). Manual runs default to dry-run (pack
+# only). Versioning is owned upstream (Changesets/rig); this only ships.
+#
+# Prereqs: a NuGet.org trusted-publishing policy for each package (TursoSync, TursoSync.DbUp,
+# TursoSync.Dapper) linking this repo's Release workflow, and repo variable NUGET_USER (your nuget.org username).
 
 on:
   push:
@@ -19,10 +23,6 @@ on:
         description: Pack only, do not push
         type: boolean
         default: true
-      nuget_source:
-        description: NuGet feed to push to (use a test feed, e.g. GitHub Packages, to rehearse a real push)
-        required: false
-        default: https://api.nuget.org/v3/index.json
 
 concurrency:
   group: release-${{ github.ref }}
@@ -43,6 +43,17 @@ jobs:
           - { os: windows-latest,   rid: win-x64,     lib: turso_sync_sdk_kit.dll }
           - { os: windows-11-arm,   rid: win-arm64,   lib: turso_sync_sdk_kit.dll }
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read engine pin
+        id: pin
+        shell: bash
+        run: |
+          sha=$(grep -oE '"sha"[[:space:]]*:[[:space:]]*"[0-9a-f]+"' turso-engine.json | grep -oE '[0-9a-f]{7,40}')
+          [ -n "$sha" ] || { echo "::error::no sha in turso-engine.json"; exit 1; }
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -50,14 +61,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: tursodatabase/turso
-          ref: ${{ vars.TURSO_REF || 'main' }}
+          ref: ${{ steps.pin.outputs.sha }}
           path: turso
 
       - name: Cache Turso Rust build
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: turso
-          key: ${{ vars.TURSO_REF || 'main' }}-${{ matrix.rid }}
+          key: ${{ steps.pin.outputs.sha }}-${{ matrix.rid }}
 
       - name: Build native (Release, FTS) — host arch
         shell: bash
@@ -80,6 +91,9 @@ jobs:
     name: pack + push
     needs: native
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write   # required for NuGet trusted publishing (OIDC)
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -141,16 +155,20 @@ jobs:
           path: artifacts/*.nupkg
           if-no-files-found: error
 
+      - name: NuGet trusted-publishing login
+        if: steps.cfg.outputs.publish == 'true'
+        id: nuget
+        uses: NuGet/login@v1
+        with:
+          user: ${{ vars.NUGET_USER }}
+
       - name: Push
         if: steps.cfg.outputs.publish == 'true'
         shell: bash
-        env:
-          SOURCE: ${{ inputs.nuget_source || 'https://api.nuget.org/v3/index.json' }}
         run: |
-          echo "Pushing to: $SOURCE"
           for pkg in artifacts/*.nupkg; do
             dotnet nuget push "$pkg" \
-              --api-key "${{ secrets.NUGET_API_KEY }}" \
-              --source "$SOURCE" \
+              --api-key "${{ steps.nuget.outputs.NUGET_API_KEY }}" \
+              --source https://api.nuget.org/v3/index.json \
               --skip-duplicate
           done

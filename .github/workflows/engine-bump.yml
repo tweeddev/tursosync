@@ -1,0 +1,54 @@
+name: Engine bump
+
+# Watches the upstream Turso engine for a newer release in the currently-pinned series and, when found,
+# opens a PR updating turso-engine.json. CI then builds + tests against the new engine on the PR, so any
+# C-ABI break is caught in review — the bump is never auto-merged.
+#
+# Notes:
+#  - To get CI to run on the bump PR, set a repo secret BUMP_PAT (a fine-scoped PAT with `contents:write`
+#    + `pull-requests:write`). PRs opened with the default GITHUB_TOKEN do NOT trigger workflows.
+#  - Requires "Allow GitHub Actions to create and approve pull requests" in repo settings.
+
+on:
+  schedule:
+    - cron: '0 7 * * 1'   # weekly, Monday 07:00 UTC
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Specific engine tag to pin (default - latest in the pinned series)
+        required: false
+        default: latest
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Bump engine pin
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          chmod +x scripts/bump-turso.sh
+          scripts/bump-turso.sh "${{ inputs.tag || 'latest' }}"
+
+      - name: Open PR
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.BUMP_PAT || github.token }}
+          add-paths: turso-engine.json
+          branch: engine-bump
+          delete-branch: true
+          title: 'chore: bump Turso engine pin'
+          commit-message: 'chore: bump Turso engine pin'
+          body: |
+            Automated Turso engine pin bump (turso-engine.json).
+
+            CI builds + tests against the new engine on this PR. **Review for C-ABI changes** before
+            merging — the engine is beta and its native ABI can shift between versions. If CI fails,
+            update `TursoNative` / the marshaling to match, then merge.

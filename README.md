@@ -61,6 +61,16 @@ packages carry it under `runtimes/<rid>/native/`. For local development against 
 `TURSOSYNC_NATIVE_DIR` at the folder containing the built `turso_sync_sdk_kit` library. **Build the native in
 release** — debug builds are ~25× slower.
 
+## Engine version
+
+The Turso engine (the `turso_sync_sdk_kit` native) is **not vendored** — CI builds it from
+[tursodatabase/turso](https://github.com/tursodatabase/turso) at the commit pinned in
+[`turso-engine.json`](turso-engine.json). The C ABI is beta, so the pin keeps builds reproducible.
+
+- Bump it with `scripts/bump-turso.sh <tag|latest>` (resolves the tag → commit SHA).
+- A weekly **Engine bump** workflow opens a PR when a newer release appears in the pinned series; CI builds
+  + tests against it on the PR, so an ABI change is caught in review before merge.
+
 ## Examples
 
 ```csharp

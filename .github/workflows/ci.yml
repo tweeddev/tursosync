@@ -1,8 +1,8 @@
 name: CI
 
-# Build + test the TursoSync package family on all three OSes. Fetches the Turso engine and builds the
-# sync native in RELEASE with FTS so the provider tests run for real (debug natives are ~25x slower).
-# Test-only — releases are handled by release.yml.
+# Build + test the TursoSync package family on all three OSes. Fetches the Turso engine at the pinned ref
+# (turso-engine.json) and builds the sync native in RELEASE with FTS so the provider tests run for real
+# (debug natives are ~25x slower). Test-only — releases are handled by release.yml.
 
 on:
   push:
@@ -26,6 +26,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Read engine pin
+        id: pin
+        shell: bash
+        run: |
+          sha=$(grep -oE '"sha"[[:space:]]*:[[:space:]]*"[0-9a-f]+"' turso-engine.json | grep -oE '[0-9a-f]{7,40}')
+          [ -n "$sha" ] || { echo "::error::no sha in turso-engine.json"; exit 1; }
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
@@ -41,14 +49,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: tursodatabase/turso
-          ref: ${{ vars.TURSO_REF || 'main' }}
+          ref: ${{ steps.pin.outputs.sha }}
           path: turso
 
       - name: Cache Turso Rust build
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: turso
-          key: ${{ vars.TURSO_REF || 'main' }}
+          key: ${{ steps.pin.outputs.sha }}
 
       - name: Build Turso native (Release, FTS)
         shell: bash
