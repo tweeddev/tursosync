@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>TursoSync.DbUp</PackageId>
+    <Title>TursoSync.DbUp — DbUp provider for Turso</Title>
+    <Description>A first-class DbUp database provider for Turso (DeployChanges.To.TursoDatabase(...)), running migrations through the TursoSync ADO.NET provider.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\TursoSync\TursoSync.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="dbup-core" Version="6.1.1" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/TursoSync/TursoSync.csproj" />
+    <Project Path="src/TursoSync.DbUp/TursoSync.DbUp.csproj" />
+    <Project Path="src/TursoSync.Dapper/TursoSync.Dapper.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/TursoSync.Tests/TursoSync.Tests.csproj" />
+  </Folder>
+</Solution>

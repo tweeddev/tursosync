@@ -1,0 +1,156 @@
+name: Release
+
+# Tag-triggered release. Builds the turso_sync_sdk_kit native (sync engine + tantivy FTS) in RELEASE on a
+# NATIVE runner for each RID (no cross-compilation), gathers them into the package's runtimes/<rid>/native/
+# tree, then packs + pushes all three packages to NuGet.
+#
+# Trigger: push a tag `v1.2.3`, or run manually (workflow_dispatch). Manual runs default to dry-run
+# (pack only). Versioning is owned upstream (Changesets/rig); this only ships.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to pack (e.g. 1.2.3 or 1.2.3-preview.1)
+        required: true
+      dry_run:
+        description: Pack only, do not push
+        type: boolean
+        default: true
+      nuget_source:
+        description: NuGet feed to push to (use a test feed, e.g. GitHub Packages, to rehearse a real push)
+        required: false
+        default: https://api.nuget.org/v3/index.json
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  native:
+    name: native · ${{ matrix.rid }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { os: ubuntu-latest,    rid: linux-x64,   lib: libturso_sync_sdk_kit.so }
+          - { os: ubuntu-24.04-arm, rid: linux-arm64, lib: libturso_sync_sdk_kit.so }
+          - { os: macos-13,         rid: osx-x64,     lib: libturso_sync_sdk_kit.dylib }
+          - { os: macos-latest,     rid: osx-arm64,   lib: libturso_sync_sdk_kit.dylib }
+          - { os: windows-latest,   rid: win-x64,     lib: turso_sync_sdk_kit.dll }
+          - { os: windows-11-arm,   rid: win-arm64,   lib: turso_sync_sdk_kit.dll }
+    steps:
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Checkout Turso engine
+        uses: actions/checkout@v4
+        with:
+          repository: tursodatabase/turso
+          ref: ${{ vars.TURSO_REF || 'main' }}
+          path: turso
+
+      - name: Cache Turso Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: turso
+          key: ${{ vars.TURSO_REF || 'main' }}-${{ matrix.rid }}
+
+      - name: Build native (Release, FTS) — host arch
+        shell: bash
+        run: cargo build --manifest-path turso/Cargo.toml -p turso_sync_sdk_kit --features turso_sdk_kit/fts --release
+
+      - name: Stage native
+        shell: bash
+        run: |
+          mkdir -p "out/${{ matrix.rid }}/native"
+          cp "turso/target/release/${{ matrix.lib }}" "out/${{ matrix.rid }}/native/${{ matrix.lib }}"
+
+      - name: Upload native
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.rid }}
+          path: out/${{ matrix.rid }}/native/${{ matrix.lib }}
+          if-no-files-found: error
+
+  pack:
+    name: pack + push
+    needs: native
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            9.0.x
+            10.0.x
+
+      - name: Resolve version + publish gate
+        id: cfg
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            version="${GITHUB_REF_NAME#v}"
+            publish=true
+          else
+            version="${{ inputs.version }}"
+            publish=$([ "${{ inputs.dry_run }}" = "false" ] && echo true || echo false)
+          fi
+          [ -n "$version" ] || { echo "::error::no version resolved"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+          echo "Version=$version  Publish=$publish"
+
+      - name: Download natives
+        uses: actions/download-artifact@v4
+        with:
+          pattern: native-*
+          path: staging
+
+      - name: Lay out runtimes into the TursoSync package
+        shell: bash
+        run: |
+          dest="src/TursoSync/runtimes"
+          mkdir -p "$dest"
+          for dir in staging/native-*; do
+            rid="${dir#staging/native-}"
+            mkdir -p "$dest/$rid/native"
+            cp "$dir"/* "$dest/$rid/native/"
+          done
+          find "$dest" -type f
+
+      - name: Pack
+        run: >
+          dotnet pack TursoSync.slnx
+          --configuration Release
+          --output artifacts
+          -p:Version=${{ steps.cfg.outputs.version }}
+          -p:ContinuousIntegrationBuild=true
+
+      - name: Upload packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: nupkg
+          path: artifacts/*.nupkg
+          if-no-files-found: error
+
+      - name: Push
+        if: steps.cfg.outputs.publish == 'true'
+        shell: bash
+        env:
+          SOURCE: ${{ inputs.nuget_source || 'https://api.nuget.org/v3/index.json' }}
+        run: |
+          echo "Pushing to: $SOURCE"
+          for pkg in artifacts/*.nupkg; do
+            dotnet nuget push "$pkg" \
+              --api-key "${{ secrets.NUGET_API_KEY }}" \
+              --source "$SOURCE" \
+              --skip-duplicate
+          done

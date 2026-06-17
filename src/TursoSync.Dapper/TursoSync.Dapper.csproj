@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>TursoSync.Dapper</PackageId>
+    <Title>TursoSync.Dapper — Dapper type handlers for Turso/SQLite</Title>
+    <Description>Dapper type handlers that round-trip ULID, DateTimeOffset and Guid as portable TEXT — handy with the TursoSync provider (and any SQLite-family ADO.NET provider).</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Dapper" Version="2.1.79" />
+    <PackageReference Include="Ulid" Version="1.4.1" />
+  </ItemGroup>
+
+</Project>

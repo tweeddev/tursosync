@@ -1,0 +1,5 @@
+# Local pack output + native payloads (natives are built/packed by CI, never committed)
+artifacts/
+**/runtimes/
+bin/
+obj/

@@ -1,0 +1,66 @@
+name: CI
+
+# Build + test the TursoSync package family on all three OSes. Fetches the Turso engine and builds the
+# sync native in RELEASE with FTS so the provider tests run for real (debug natives are ~25x slower).
+# Test-only — releases are handled by release.yml.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            9.0.x
+            10.0.x
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Checkout Turso engine
+        uses: actions/checkout@v4
+        with:
+          repository: tursodatabase/turso
+          ref: ${{ vars.TURSO_REF || 'main' }}
+          path: turso
+
+      - name: Cache Turso Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: turso
+          key: ${{ vars.TURSO_REF || 'main' }}
+
+      - name: Build Turso native (Release, FTS)
+        shell: bash
+        run: |
+          cargo build --manifest-path turso/Cargo.toml -p turso_sync_sdk_kit --features turso_sdk_kit/fts --release
+          echo "TURSOSYNC_NATIVE_DIR=${{ github.workspace }}/turso/target/release" >> "$GITHUB_ENV"
+
+      - name: Restore
+        run: dotnet restore TursoSync.slnx
+
+      - name: Build (Release, warnings-as-errors)
+        run: dotnet build TursoSync.slnx --configuration Release --no-restore
+
+      - name: Test (Release)
+        run: dotnet test TursoSync.slnx --configuration Release --no-build --verbosity normal

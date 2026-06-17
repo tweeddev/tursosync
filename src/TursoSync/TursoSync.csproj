@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>TursoSync</PackageId>
+    <Title>TursoSync — Turso ADO.NET provider with local↔cloud sync</Title>
+    <Description>A drop-in ADO.NET provider for Turso (namespace Turso) with local↔cloud replication and tantivy full-text search. Includes UDFs, aggregates, collations, load-extension, local at-rest encryption, and connection pooling.</Description>
+  </PropertyGroup>
+
+  <!-- Per-RID native payload (turso_sync_sdk_kit, built release+FTS). Laid out by CI into runtimes/<rid>/native/;
+       packed when present. During local dev the native is resolved via TURSOSYNC_NATIVE_DIR. -->
+  <ItemGroup>
+    <None Include="runtimes/**" Pack="true" PackagePath="runtimes/%(RecursiveDir)%(Filename)%(Extension)" Condition="Exists('runtimes')" />
+  </ItemGroup>
+
+</Project>
