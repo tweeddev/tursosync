@@ -35,13 +35,16 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
+        # Each RID builds for an explicit target. osx-x64 cross-builds from the Apple Silicon runner
+        # (reliable on macOS) instead of the fading Intel macos-13 image; arm64 Linux/Windows use native
+        # runners (cross-OS is the brittle path we avoid).
         include:
-          - { os: ubuntu-latest,    rid: linux-x64,   lib: libturso_sync_sdk_kit.so }
-          - { os: ubuntu-24.04-arm, rid: linux-arm64, lib: libturso_sync_sdk_kit.so }
-          - { os: macos-13,         rid: osx-x64,     lib: libturso_sync_sdk_kit.dylib }
-          - { os: macos-latest,     rid: osx-arm64,   lib: libturso_sync_sdk_kit.dylib }
-          - { os: windows-latest,   rid: win-x64,     lib: turso_sync_sdk_kit.dll }
-          - { os: windows-11-arm,   rid: win-arm64,   lib: turso_sync_sdk_kit.dll }
+          - { os: ubuntu-latest,    rid: linux-x64,   target: x86_64-unknown-linux-gnu,  lib: libturso_sync_sdk_kit.so }
+          - { os: ubuntu-24.04-arm, rid: linux-arm64, target: aarch64-unknown-linux-gnu, lib: libturso_sync_sdk_kit.so }
+          - { os: macos-latest,     rid: osx-x64,     target: x86_64-apple-darwin,       lib: libturso_sync_sdk_kit.dylib }
+          - { os: macos-latest,     rid: osx-arm64,   target: aarch64-apple-darwin,      lib: libturso_sync_sdk_kit.dylib }
+          - { os: windows-latest,   rid: win-x64,     target: x86_64-pc-windows-msvc,    lib: turso_sync_sdk_kit.dll }
+          - { os: windows-11-arm,   rid: win-arm64,   target: aarch64-pc-windows-msvc,   lib: turso_sync_sdk_kit.dll }
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -56,6 +59,8 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
 
       - name: Checkout Turso engine
         uses: actions/checkout@v4
@@ -70,15 +75,15 @@ jobs:
           workspaces: turso
           key: ${{ steps.pin.outputs.sha }}-${{ matrix.rid }}
 
-      - name: Build native (Release, FTS) — host arch
+      - name: Build native (Release, FTS)
         shell: bash
-        run: cargo build --manifest-path turso/Cargo.toml -p turso_sync_sdk_kit --features turso_sdk_kit/fts --release
+        run: cargo build --manifest-path turso/Cargo.toml -p turso_sync_sdk_kit --features turso_sdk_kit/fts --release --target ${{ matrix.target }}
 
       - name: Stage native
         shell: bash
         run: |
           mkdir -p "out/${{ matrix.rid }}/native"
-          cp "turso/target/release/${{ matrix.lib }}" "out/${{ matrix.rid }}/native/${{ matrix.lib }}"
+          cp "turso/target/${{ matrix.target }}/release/${{ matrix.lib }}" "out/${{ matrix.rid }}/native/${{ matrix.lib }}"
 
       - name: Upload native
         uses: actions/upload-artifact@v4
