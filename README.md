@@ -94,6 +94,21 @@ Feature-complete relative to the official `Turso.Data` + `Turso.Raw` surface (se
 [TURSO-PARITY.md](TURSO-PARITY.md)), plus the sync layer. The underlying Turso engine is **beta**; one known
 gap is sync-lane at-rest encryption (base-lane encryption is supported).
 
+## Releasing
+
+Releases are driven by [shipRig](https://rigsmith.dev) (changesets) — config in `.changeset/`.
+
+1. Record intent: `shiprig add` (pick the bump + summary; the three packages are `fixed`, so they
+   version together; `TursoSync.Tests` is ignored).
+2. Ship: `shiprig release` → versions + changelog → commit → tags `TursoSync@x.y.z` → push.
+
+The pushed tag triggers the **Release** workflow, which builds all six RID natives (release + FTS,
+stripped), packs, and publishes to NuGet via **trusted publishing** (OIDC — no API key). shipRig only
+versions/tags/pushes; the cross-arch native build + publish stay in CI (`.changeset/release.jsonc`).
+
+Day-to-day dev uses [rig](https://rigsmith.dev) (`.rig.json`): `rig build` / `rig test` / `rig coverage`,
+plus `rig engine <tag|latest>` (pin the engine) and `rig pack` (local Tier-0 pack + consume test).
+
 ## License
 
 MIT.

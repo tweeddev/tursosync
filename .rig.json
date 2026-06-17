@@ -4,14 +4,6 @@
     "solution": "TursoSync.slnx"
   },
   "commands": {
-    "release": {
-      "description": "Tag the Directory.Build.props version and push it; CI builds all RID natives + publishes via trusted publishing.",
-      "command": "scripts/release.sh"
-    },
-    "release:dry": {
-      "description": "Trigger a release dry-run on GitHub (build all natives + pack at the current version, no push).",
-      "command": "gh workflow run release.yml -f version=\"$(grep -oE '<Version>[^<]+' Directory.Build.props | head -1 | sed -E 's/.*<Version>//')\" -f dry_run=true && echo 'dry-run dispatched — gh run watch the latest release.yml run'"
-    },
     "engine": {
       "description": "Pin the Turso engine in turso-engine.json (arg: a tag, or 'latest' for newest in series).",
       "command": "scripts/bump-turso.sh"

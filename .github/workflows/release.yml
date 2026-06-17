@@ -5,15 +5,17 @@ name: Release
 # runtimes/<rid>/native/, then packs + pushes all three packages to NuGet via trusted publishing (OIDC —
 # no API key secret).
 #
-# Trigger: push a tag `v1.2.3`, or run manually (workflow_dispatch). Manual runs default to dry-run (pack
-# only). Versioning is owned upstream (Changesets/rig); this only ships.
+# Trigger: shipRig pushes a per-package tag `TursoSync@1.2.3` (see .changeset/release.jsonc), or run
+# manually (workflow_dispatch, defaults to dry-run = pack only). Versioning is owned by shipRig; this only
+# builds + ships. Sibling tags (TursoSync.DbUp@…, .Dapper@…) don't match this filter, so a release fires
+# exactly one run that publishes all three at the same version.
 #
 # Prereqs: a NuGet.org trusted-publishing policy for each package (TursoSync, TursoSync.DbUp,
 # TursoSync.Dapper) linking this repo's Release workflow, and repo variable NUGET_USER (your nuget.org username).
 
 on:
   push:
-    tags: ['v*']
+    tags: ['TursoSync@*']
   workflow_dispatch:
     inputs:
       version:
@@ -118,7 +120,7 @@ jobs:
         shell: bash
         run: |
           if [ "${{ github.event_name }}" = "push" ]; then
-            version="${GITHUB_REF_NAME#v}"
+            version="${GITHUB_REF_NAME##*@}"   # TursoSync@1.2.3 -> 1.2.3
             publish=true
           else
             version="${{ inputs.version }}"
