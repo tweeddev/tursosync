@@ -51,7 +51,8 @@ net8/9/10; `TursoSync` bundles all six RID natives under `runtimes/<rid>/native/
   runs the suite.
 - **`release.yml`** — triggered by shipRig's tag **`TursoSync@*`**; matrix builds all 6 RID natives on
   **native runners** (incl. `ubuntu-24.04-arm`, `windows-11-arm`; osx-x64 cross-built on Apple Silicon since
-  `macos-13` Intel is being retired) → strip → pack → **NuGet trusted publishing (OIDC, keyless)**.
+  `macos-13` Intel is being retired) → strip → pack → **NuGet trusted publishing (OIDC, keyless)** → creates
+  a **GitHub Release** for the tag (auto-generated notes, prerelease-aware, attaches the .nupkgs).
 - **`engine-bump.yml`** — weekly; opens a PR bumping `turso-engine.json` when the upstream series has a newer
   release; CI validates the new ABI on the PR before merge.
 - **Repo config:** variable **`NUGET_USER=JohnCampionJr`**; a NuGet **trusted-publishing policy** (account →
@@ -80,16 +81,16 @@ net8/9/10; `TursoSync` bundles all six RID natives under `runtimes/<rid>/native/
 
 ## Open items / next steps
 
-1. **SECURITY — rotate the nuget.org API key** used for the manual first publish (it was pasted in chat;
-   treat as compromised). Trusted publishing means no long-lived key is needed going forward.
-2. **Version decision:** recommend cutting **`0.1.0`** (drop `-preview`) as the first real release. **Hold
+1. **Version decision:** recommend cutting **`0.1.0`** (drop `-preview`) as the first real release. **Hold
    `1.0.0`** until: the Turso **engine reaches a stable (non-pre) release**, the **remote-sync path has
    coverage**, and **sync-lane at-rest encryption** is validated (known gap; base-lane encryption works).
-3. **Biggest test gap:** add a **gated live-sync integration test** (spin up a sync server, gate on env like
+2. **Biggest test gap:** add a **gated live-sync integration test** (spin up a sync server, gate on env like
    Neon) — covers the remote `TursoSyncDatabase` path, the package's whole reason to exist.
-4. **engine-bump PRs:** to get CI to run on the bot PR, add repo secret **`BUMP_PAT`** + enable "Allow GitHub
+3. **engine-bump PRs:** to get CI to run on the bot PR, add repo secret **`BUMP_PAT`** + enable "Allow GitHub
    Actions to create and approve pull requests."
-5. Optional: re-add a GitHub Release step (`release` is currently dropped from the shipRig `order`).
+
+_Done: nuget API key rotated; GitHub Release step added to `release.yml`; Tweed swapped to the published
+packages._
 
 ## Gotchas learned
 

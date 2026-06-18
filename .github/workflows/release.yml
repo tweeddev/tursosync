@@ -101,7 +101,7 @@ jobs:
     needs: native
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write   # create the GitHub Release
       id-token: write   # required for NuGet trusted publishing (OIDC)
     steps:
       - name: Checkout
@@ -181,3 +181,20 @@ jobs:
               --source https://api.nuget.org/v3/index.json \
               --skip-duplicate
           done
+
+      # GitHub Release for the tag (notes auto-generated from merged PRs/commits). Tag-triggered runs only;
+      # prerelease versions (containing '-') are marked as such. Attaches the .nupkg files for convenience.
+      - name: GitHub Release
+        if: github.event_name == 'push' && steps.cfg.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          ver="${{ steps.cfg.outputs.version }}"
+          pre=""
+          case "$ver" in *-*) pre="--prerelease";; esac
+          gh release create "$GITHUB_REF_NAME" \
+            --title "TursoSync $ver" \
+            --generate-notes \
+            $pre \
+            artifacts/*.nupkg
