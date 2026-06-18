@@ -1,12 +1,13 @@
 name: Engine bump
 
 # Watches the upstream Turso engine for a newer release in the currently-pinned series and, when found,
-# opens a PR updating turso-engine.json. CI then builds + tests against the new engine on the PR, so any
-# C-ABI break is caught in review — the bump is never auto-merged.
+# opens a PR updating turso-engine.json. The PR carries the `full-ci` label, which triggers integration.yml
+# to build + test against the new engine, so any C-ABI break is caught in review — never auto-merged.
 #
 # Notes:
-#  - To get CI to run on the bump PR, set a repo secret BUMP_PAT (a fine-scoped PAT with `contents:write`
-#    + `pull-requests:write`). PRs opened with the default GITHUB_TOKEN do NOT trigger workflows.
+#  - To get workflows to run on the bump PR, set a repo secret BUMP_PAT (a fine-scoped PAT with
+#    `contents:write` + `pull-requests:write`). PRs opened with the default GITHUB_TOKEN do NOT trigger
+#    workflows (so the `full-ci` label wouldn't fire integration.yml either).
 #  - Requires "Allow GitHub Actions to create and approve pull requests" in repo settings.
 
 on:
@@ -44,6 +45,7 @@ jobs:
           add-paths: turso-engine.json
           branch: engine-bump
           delete-branch: true
+          labels: full-ci
           title: 'chore: bump Turso engine pin'
           commit-message: 'chore: bump Turso engine pin'
           body: |
