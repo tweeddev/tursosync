@@ -3,6 +3,7 @@ artifacts/
 **/runtimes/
 bin/
 obj/
+TestResults/
 
 # Vendored engine/source checkouts (built locally; never committed)
 reference/
