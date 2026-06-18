@@ -64,6 +64,16 @@ jobs:
           cargo build --manifest-path turso/Cargo.toml -p turso_sync_sdk_kit --features turso_sdk_kit/fts --release
           echo "TURSOSYNC_NATIVE_DIR=${{ github.workspace }}/turso/target/release" >> "$GITHUB_ENV"
 
+      - name: Build Turso sync server (tursodb)
+        shell: bash
+        run: |
+          # The CLI doubles as a self-hostable sync server (`tursodb --sync-server`); the live-sync
+          # integration tests spawn it so the remote TursoSyncDatabase path runs for real, not skipped.
+          cargo build --manifest-path turso/Cargo.toml -p turso_cli --release
+          exe=""
+          [ "${{ runner.os }}" = "Windows" ] && exe=".exe"
+          echo "TURSOSYNC_SYNC_SERVER=${{ github.workspace }}/turso/target/release/tursodb$exe" >> "$GITHUB_ENV"
+
       - name: Restore
         run: dotnet restore TursoSync.slnx
 

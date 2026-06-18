@@ -73,24 +73,27 @@ net8/9/10; `TursoSync` bundles all six RID natives under `runtimes/<rid>/native/
 
 ## Coverage
 
-**63.6%** net10 line coverage (31 tests). Well-covered: factory/config/params/marshal/raw-connection. Gaps:
-- **TursoSyncDatabase 58%** — the **remote-sync path** (Push/Pull/Stats/Checkpoint + HTTP IO handler) is
-  *unrun*, not skipped-by-choice: it needs a live Turso Cloud / `tursodb` sync server (the one skipped test,
-  `PushPull_RoundTripsThroughRemote`, gated on `TWEED_TURSO_SYNC_URL`).
-- error/edge branches in Command/Reader/Pool/Extensions; trivial ctors in TursoException.
+**34 tests** (31 + 3 live-sync). Well-covered: factory/config/params/marshal/raw-connection. The
+**remote-sync path** (Push/Pull/Stats/Checkpoint + HTTP IO handler) is now exercised for real by
+`LiveSyncIntegrationTests` — they spawn a self-hosted `tursodb --sync-server` (gated on
+**`TURSOSYNC_SYNC_SERVER`** → a `tursodb` binary; CI builds it and sets the var, so they run on all 3 OSes;
+locally `cargo build -p turso_cli --release` then export the path). The external-cloud round-trip
+(`PushPull_RoundTripsThroughRemote`, gated on `TWEED_TURSO_SYNC_URL`) remains for validating real Turso Cloud.
+Remaining gaps: error/edge branches in Command/Reader/Pool/Extensions; trivial ctors in TursoException.
 
 ## Open items / next steps
 
 1. **Version decision:** recommend cutting **`0.1.0`** (drop `-preview`) as the first real release. **Hold
    `1.0.0`** until: the Turso **engine reaches a stable (non-pre) release**, the **remote-sync path has
    coverage**, and **sync-lane at-rest encryption** is validated (known gap; base-lane encryption works).
-2. **Biggest test gap:** add a **gated live-sync integration test** (spin up a sync server, gate on env like
-   Neon) — covers the remote `TursoSyncDatabase` path, the package's whole reason to exist.
+2. ~~**Biggest test gap:** add a gated live-sync integration test.~~ **Done** — `LiveSyncIntegrationTests`
+   spawns `tursodb --sync-server` and round-trips Push/Pull/Stats/Checkpoint; CI builds the server and runs
+   them for real on all 3 OSes. (Sync-lane at-rest encryption is still unvalidated — see item 1.)
 3. **engine-bump PRs:** to get CI to run on the bot PR, add repo secret **`BUMP_PAT`** + enable "Allow GitHub
    Actions to create and approve pull requests."
 
 _Done: nuget API key rotated; GitHub Release step added to `release.yml`; Tweed swapped to the published
-packages._
+packages; live-sync integration tests added (open item #2)._
 
 ## Gotchas learned
 
