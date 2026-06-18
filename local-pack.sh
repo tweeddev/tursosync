@@ -15,7 +15,7 @@
 #
 # Native source resolution (first hit wins):
 #   1. $TURSOSYNC_NATIVE_DIR/<lib>        — reuse an already-built native
-#   2. cargo build in $TURSO_SRC          — defaults to ../reference/turso-main if present
+#   2. cargo build in $TURSO_SRC          — defaults to ./reference/turso-main (gitignored) if present
 #
 set -euo pipefail
 
@@ -53,7 +53,7 @@ if [[ -n "${TURSOSYNC_NATIVE_DIR:-}" && -f "$TURSOSYNC_NATIVE_DIR/$lib" ]]; then
   native="$TURSOSYNC_NATIVE_DIR/$lib"
   echo "→ reusing native: $native"
 else
-  turso_src="${TURSO_SRC:-$here/../reference/turso-main}"
+  turso_src="${TURSO_SRC:-$here/reference/turso-main}"
   if [[ ! -d "$turso_src" ]]; then
     echo "No native found. Set TURSOSYNC_NATIVE_DIR to a folder containing $lib, or TURSO_SRC to a Turso engine checkout." >&2
     exit 1
