@@ -78,13 +78,10 @@ jobs:
           ref: ${{ steps.pin.outputs.sha }}
           path: turso
 
-      - name: Cache Turso Rust build
-        if: steps.turso-bin.outputs.cache-hit != 'true'
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: turso
-          key: ${{ steps.pin.outputs.sha }}
-
+      # No Rust dependency cache here on purpose: the turso-bin cache above already skips the whole build at
+      # an unchanged engine pin, and a cold build only happens when the pin (and thus this key) changes — when
+      # a dep cache for the new SHA wouldn't exist anyway. A ~600 MB/OS rust-cache would be dead weight that
+      # just crowds the 10 GB repo cache budget and evicts the small turso-bin caches that do the real work.
       - name: Build Turso native (Release, FTS) + sync server (tursodb)
         if: steps.turso-bin.outputs.cache-hit != 'true'
         shell: bash
