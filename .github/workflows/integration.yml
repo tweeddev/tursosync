@@ -5,18 +5,23 @@ name: Integration
 # spawn `tursodb --sync-server`. This is the only lane that exercises the native + remote sync path.
 #
 # It is GATED so it doesn't rebuild the engine on every commit:
+#   - push to main             — validate merges AND warm the binary cache on the default branch
 #   - workflow_dispatch        — run it on demand
 #   - schedule (weekly)        — catch upstream/regression drift
 #   - push tag TursoSync@*     — validate a release build
 #   - pull_request `full-ci`   — opt in per PR (engine-bump PRs get the label automatically)
 #
 # Built native + server binaries are cached by engine SHA, so reruns at an unchanged pin skip the Rust build.
+# The main run matters for sharing: GitHub scopes a cache to the branch that wrote it, and PRs can only read
+# their own ref or the DEFAULT branch — so the cache must be warmed on main for PRs to get a hit (a sibling
+# PR's cache is invisible). Without the main run every PR rebuilds from scratch.
 
 on:
   workflow_dispatch:
   schedule:
     - cron: '0 6 * * 1'   # weekly, Monday 06:00 UTC (before the engine-bump job at 07:00)
   push:
+    branches: [main]
     tags: ['TursoSync@*']
   pull_request:
     types: [opened, synchronize, reopened, labeled]
