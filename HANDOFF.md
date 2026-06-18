@@ -19,8 +19,10 @@ Rust engine + sync + FTS with bundled natives. It was ported from `tursodatabase
 
 ## Published
 
-`TursoSync`, `TursoSync.DbUp`, `TursoSync.Dapper` — all at **`0.1.0-preview.1`** on nuget.org (multi-target
-net8/9/10; `TursoSync` bundles all six RID natives under `runtimes/<rid>/native/`, ~40 MB).
+`TursoSync`, `TursoSync.DbUp`, `TursoSync.Dapper` — first real release **`0.1.0`** on nuget.org (multi-target
+net8/9/10; `TursoSync` bundles all six RID natives under `runtimes/<rid>/native/`, ~40 MB). Cut 2026-06-18
+via `shiprig release` (tags `TursoSync@0.1.0` etc. → `release.yml` built the 6 RID natives + published via
+OIDC + created the GitHub Release). The earlier `0.1.0-preview.1` remains on the feed.
 
 ## Package family
 
@@ -73,20 +75,30 @@ net8/9/10; `TursoSync` bundles all six RID natives under `runtimes/<rid>/native/
 
 ## Coverage
 
-**34 tests** (31 + 3 live-sync). Well-covered: factory/config/params/marshal/raw-connection. The
-**remote-sync path** (Push/Pull/Stats/Checkpoint + HTTP IO handler) is now exercised for real by
-`LiveSyncIntegrationTests` — they spawn a self-hosted `tursodb --sync-server` (gated on
-**`TURSOSYNC_SYNC_SERVER`** → a `tursodb` binary; CI builds it and sets the var, so they run on all 3 OSes;
-locally `cargo build -p turso_cli --release` then export the path). The external-cloud round-trip
-(`PushPull_RoundTripsThroughRemote`, gated on `TWEED_TURSO_SYNC_URL`) remains for validating real Turso Cloud.
-Remaining gaps: error/edge branches in Command/Reader/Pool/Extensions; trivial ctors in TursoException.
+**~82% line / ~71% branch (107 tests).** Well-covered now incl. the ADO.NET surface — connection
+lifecycle/pooling, transactions, command + reader, parameter collection, extension marshalling (all lifted
+from the earlier 64.9%/35-test baseline). The **remote-sync path** (Push/Pull/Stats/Checkpoint + HTTP IO
+handler) is exercised for real by `LiveSyncIntegrationTests` — they spawn a self-hosted `tursodb --sync-server`
+(gated on **`TURSOSYNC_SYNC_SERVER`** → a `tursodb` binary; locally `cargo build -p turso_cli --release` then
+export the path). Native-dependent tests skip in the fast lane and run in `integration.yml`. The external-cloud
+round-trip (`PushPull_RoundTripsThroughRemote`, gated on `TWEED_TURSO_SYNC_URL`) remains for real Turso Cloud.
+Remaining gaps: residual error/edge branches; trivial ctors in TursoException; TursoStats/EncryptionCipher names.
+
+## CI lanes
+
+- **`ci.yml` (fast, every push/PR):** C# restore/build/test only — no Rust. Native-gated tests skip. ~1–3 min.
+- **`integration.yml` (gated):** builds the native (release+FTS) + `tursodb` and runs the full suite incl.
+  live-sync, on **push to main / weekly / `TursoSync@*` tags / `full-ci`-labelled PRs**. Built binaries are
+  cached by engine SHA. The **main run is what warms the cache** for PRs — GitHub scopes a cache to its
+  creating ref and PRs read only their own ref or the default branch, so without a main run every PR rebuilds.
+- **`release.yml`:** unchanged — `TursoSync@*` tag → 6 RID natives → OIDC publish → GitHub Release.
 
 ## Open items / next steps
 
-1. **Version decision:** recommend cutting **`0.1.0`** (drop `-preview`) as the first real release. Two of
-   the original `1.0.0` holds are now cleared — the **remote-sync path has coverage** (item 2) and
-   **sync-lane at-rest encryption is resolved** (below) — so **`1.0.0`** now waits only on the Turso
-   **engine reaching a stable (non-pre) release**.
+1. ~~**Version decision:** cut `0.1.0` (drop `-preview`).~~ **Done — `0.1.0` shipped 2026-06-18.** Two of the
+   original `1.0.0` holds are cleared — the **remote-sync path has coverage** (item 2) and **sync-lane at-rest
+   encryption is resolved** (below) — so **`1.0.0`** now waits only on the Turso **engine reaching a stable
+   (non-pre) release**.
    - **Sync-lane at-rest encryption (resolved):** *not supported upstream*, not merely untested. The Go
      binding this was ported from has no encryption fields on its sync config; the engine plumbs only a
      *remote* (Turso Cloud) encryption key, never the local pager cipher, and a synced DB created with a
@@ -97,13 +109,18 @@ Remaining gaps: error/edge branches in Command/Reader/Pool/Extensions; trivial c
      (`RemoteEncryptionKey`/`RemoteEncryptionCipher`, already on the native struct) for Cloud encrypted DBs is
      separate future work (needs a Cloud DB to validate).
 2. ~~**Biggest test gap:** add a gated live-sync integration test.~~ **Done** — `LiveSyncIntegrationTests`
-   spawns `tursodb --sync-server` and round-trips Push/Pull/Stats/Checkpoint; CI builds the server and runs
-   them for real on all 3 OSes.
+   spawns `tursodb --sync-server` and round-trips Push/Pull/Stats/Checkpoint via `integration.yml`.
 3. **engine-bump PRs:** to get CI to run on the bot PR, add repo secret **`BUMP_PAT`** + enable "Allow GitHub
-   Actions to create and approve pull requests."
+   Actions to create and approve pull requests." (Bump PRs carry the `full-ci` label so `integration.yml`
+   validates the new ABI — but only once `BUMP_PAT` lets the PR trigger workflows at all.)
+4. **Follow-ups from the coverage sweep:** the remaining ~18% is mostly hard-to-reach native error/IO-failure
+   branches in `TursoSyncDatabase` (Poison/FullRead/FullWrite error paths) and trivial value-type ctors. Also
+   wiring the sync engine's *remote* encryption key for Turso Cloud encrypted DBs (see item 1) is unstarted.
 
 _Done: nuget API key rotated; GitHub Release step added to `release.yml`; Tweed swapped to the published
-packages; live-sync integration tests added (open item #2)._
+packages; live-sync integration tests added (item #2); sync-lane encryption guard (item #1 blocker); CI split
+into fast + gated-integration lanes with SHA-keyed binary caching; coverage 65%→82%; **`0.1.0` released
+(item #1)**._
 
 ## Gotchas learned
 
