@@ -67,6 +67,26 @@ public class TursoSyncBehaviorTests
         act.Should().Throw<ArgumentException>();
     }
 
+    // ---- encryption is a base-engine feature; the sync engine must reject it -----------------------
+
+    [TestMethod]
+    public void Create_WithLocalEncryption_OnSyncEngine_Throws()
+    {
+        // Local at-rest encryption isn't supported on the sync lane (the Go binding never plumbed it, and the
+        // engine can't reopen the encrypted local file). Create must reject it loudly — deterministically,
+        // before any native call — rather than hand back a database that's lost on the next open.
+        var config = new TursoSyncConfig
+        {
+            Path = "ignored.db",
+            RemoteUrl = "libsql://example",
+            EncryptionCipher = TursoEncryptionCipher.Aes256Gcm.ToName(),
+            EncryptionKey = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        };
+
+        var act = () => TursoSyncDatabase.Create(config);
+        act.Should().Throw<NotSupportedException>().WithMessage("*base engine*");
+    }
+
     // ---- local engine behaviors (Stats / Checkpoint work without a remote) -------------------------
 
     [TestMethod]

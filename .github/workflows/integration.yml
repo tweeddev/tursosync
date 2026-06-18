@@ -1,0 +1,117 @@
+name: Integration
+
+# Full lane — builds the Turso native (Release + FTS) and the `tursodb` sync server at the pinned engine ref
+# (turso-engine.json), then runs the whole suite for real, including the live-sync integration tests that
+# spawn `tursodb --sync-server`. This is the only lane that exercises the native + remote sync path.
+#
+# It is GATED so it doesn't rebuild the engine on every commit:
+#   - workflow_dispatch        — run it on demand
+#   - schedule (weekly)        — catch upstream/regression drift
+#   - push tag TursoSync@*     — validate a release build
+#   - pull_request `full-ci`   — opt in per PR (engine-bump PRs get the label automatically)
+#
+# Built native + server binaries are cached by engine SHA, so reruns at an unchanged pin skip the Rust build.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * 1'   # weekly, Monday 06:00 UTC (before the engine-bump job at 07:00)
+  push:
+    tags: ['TursoSync@*']
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+
+concurrency:
+  group: integration-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  integration:
+    # On PRs, only run when the `full-ci` label is present; always run for dispatch/schedule/tag.
+    if: >-
+      github.event_name != 'pull_request' ||
+      contains(github.event.pull_request.labels.*.name, 'full-ci')
+    name: integration · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read engine pin
+        id: pin
+        shell: bash
+        run: |
+          sha=$(grep -oE '"sha"[[:space:]]*:[[:space:]]*"[0-9a-f]+"' turso-engine.json | grep -oE '[0-9a-f]{7,40}')
+          [ -n "$sha" ] || { echo "::error::no sha in turso-engine.json"; exit 1; }
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            9.0.x
+            10.0.x
+
+      # Cache the built artifacts (native lib + tursodb) keyed on the engine SHA. A hit skips the engine
+      # checkout + Rust toolchain + cargo build entirely — the binaries are deterministic for a given pin.
+      - name: Cache Turso binaries
+        id: turso-bin
+        uses: actions/cache@v4
+        with:
+          path: turso-bin
+          key: turso-bin-v1-${{ runner.os }}-${{ steps.pin.outputs.sha }}
+
+      - name: Setup Rust
+        if: steps.turso-bin.outputs.cache-hit != 'true'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Checkout Turso engine
+        if: steps.turso-bin.outputs.cache-hit != 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: tursodatabase/turso
+          ref: ${{ steps.pin.outputs.sha }}
+          path: turso
+
+      # No Rust dependency cache here on purpose: the turso-bin cache above already skips the whole build at
+      # an unchanged engine pin, and a cold build only happens when the pin (and thus this key) changes — when
+      # a dep cache for the new SHA wouldn't exist anyway. A ~600 MB/OS rust-cache would be dead weight that
+      # just crowds the 10 GB repo cache budget and evicts the small turso-bin caches that do the real work.
+      - name: Build Turso native (Release, FTS) + sync server (tursodb)
+        if: steps.turso-bin.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          cargo build --manifest-path turso/Cargo.toml -p turso_sync_sdk_kit --features turso_sdk_kit/fts --release
+          cargo build --manifest-path turso/Cargo.toml -p turso_cli --release
+          mkdir -p turso-bin
+          # cdylib name varies by OS (lib*.so / lib*.dylib / *.dll); copy whichever exists.
+          for f in turso/target/release/*turso_sync_sdk_kit*.so \
+                   turso/target/release/*turso_sync_sdk_kit*.dylib \
+                   turso/target/release/*turso_sync_sdk_kit*.dll; do
+            [ -f "$f" ] && cp "$f" turso-bin/
+          done
+          exe=""
+          [ "${{ runner.os }}" = "Windows" ] && exe=".exe"
+          cp "turso/target/release/tursodb$exe" turso-bin/
+
+      - name: Export native + server paths
+        shell: bash
+        run: |
+          echo "TURSOSYNC_NATIVE_DIR=${{ github.workspace }}/turso-bin" >> "$GITHUB_ENV"
+          exe=""
+          [ "${{ runner.os }}" = "Windows" ] && exe=".exe"
+          echo "TURSOSYNC_SYNC_SERVER=${{ github.workspace }}/turso-bin/tursodb$exe" >> "$GITHUB_ENV"
+
+      - name: Restore
+        run: dotnet restore TursoSync.slnx
+
+      - name: Build (Release, warnings-as-errors)
+        run: dotnet build TursoSync.slnx --configuration Release --no-restore
+
+      - name: Test (Release)
+        run: dotnet test TursoSync.slnx --configuration Release --no-build --verbosity normal

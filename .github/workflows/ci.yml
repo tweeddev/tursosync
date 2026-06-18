@@ -1,8 +1,9 @@
 name: CI
 
-# Build + test the TursoSync package family on all three OSes. Fetches the Turso engine at the pinned ref
-# (turso-engine.json) and builds the sync native in RELEASE with FTS so the provider tests run for real
-# (debug natives are ~25x slower). Test-only — releases are handled by release.yml.
+# Fast lane — runs on every push/PR. Builds the TursoSync package family (Release, warnings-as-errors) and
+# runs the test suite. This lane does NOT build the Turso native, so the native-gated tests skip (Inconclusive)
+# rather than run. The full native + live-sync integration run is gated in integration.yml (manual / weekly /
+# release tag / `full-ci`-labelled PR) so it doesn't rebuild the engine on every commit.
 
 on:
   push:
@@ -15,8 +16,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
-    name: test · ${{ matrix.os }}
+  build-test:
+    name: build+test · ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -26,14 +27,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Read engine pin
-        id: pin
-        shell: bash
-        run: |
-          sha=$(grep -oE '"sha"[[:space:]]*:[[:space:]]*"[0-9a-f]+"' turso-engine.json | grep -oE '[0-9a-f]{7,40}')
-          [ -n "$sha" ] || { echo "::error::no sha in turso-engine.json"; exit 1; }
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
-
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
@@ -41,28 +34,6 @@ jobs:
             8.0.x
             9.0.x
             10.0.x
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Checkout Turso engine
-        uses: actions/checkout@v4
-        with:
-          repository: tursodatabase/turso
-          ref: ${{ steps.pin.outputs.sha }}
-          path: turso
-
-      - name: Cache Turso Rust build
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: turso
-          key: ${{ steps.pin.outputs.sha }}
-
-      - name: Build Turso native (Release, FTS)
-        shell: bash
-        run: |
-          cargo build --manifest-path turso/Cargo.toml -p turso_sync_sdk_kit --features turso_sdk_kit/fts --release
-          echo "TURSOSYNC_NATIVE_DIR=${{ github.workspace }}/turso/target/release" >> "$GITHUB_ENV"
 
       - name: Restore
         run: dotnet restore TursoSync.slnx

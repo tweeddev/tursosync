@@ -76,10 +76,16 @@ public sealed record TursoSyncConfig
     /// <summary>Busy timeout (ms) for the connection; 0 uses the engine default, &lt;0 disables it.</summary>
     public int BusyTimeoutMs { get; init; } = 5000;
 
-    /// <summary>Local at-rest encryption cipher name (e.g. <c>aes256gcm</c>); null disables encryption.</summary>
+    /// <summary>
+    /// Local at-rest encryption cipher name (e.g. <c>aes256gcm</c>); null disables encryption.
+    /// <para><b>Base-engine lane only.</b> At-rest encryption applies to a local-only database (no
+    /// <see cref="RemoteUrl"/>, sync disabled). The sync engine does not support it — creating a synced
+    /// database with a cipher set throws <see cref="NotSupportedException"/>, because the engine cannot
+    /// reopen the encrypted local file. (Turso Cloud server-side encryption is a separate, remote concept.)</para>
+    /// </summary>
     public string? EncryptionCipher { get; init; }
 
-    /// <summary>Hex-encoded encryption key. Required when <see cref="EncryptionCipher"/> is set.</summary>
+    /// <summary>Hex-encoded encryption key. Required when <see cref="EncryptionCipher"/> is set. Base-lane only — see <see cref="EncryptionCipher"/>.</summary>
     public string? EncryptionKey { get; init; }
 
     /// <summary>True when local at-rest encryption is configured.</summary>

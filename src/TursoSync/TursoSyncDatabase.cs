@@ -39,6 +39,20 @@ public sealed class TursoSyncDatabase : IDisposable
     {
         ArgumentNullException.ThrowIfNull(config);
 
+        // Local at-rest encryption is a base-engine feature only. The upstream sync engine never plumbs the
+        // pager cipher/key into its local files (the Go binding this was ported from has no such config), and
+        // a synced DB created with one writes an encrypted page it then cannot reopen ("Decryption failed for
+        // page=1"). Reject it loudly here rather than hand back a database that's lost on the next open. For
+        // local at-rest encryption use a local-only connection (no Remote Url, Sync disabled), which opens
+        // through the base engine. (Turso Cloud's server-side encryption is a separate, remote-key concept.)
+        if (config.IsEncrypted)
+        {
+            throw new NotSupportedException(
+                "Local at-rest encryption is not supported on the sync engine. Configure EncryptionCipher/" +
+                "EncryptionKey only on a local-only database (no Remote Url and Sync disabled), which opens " +
+                "through the base engine.");
+        }
+
         var baseUrl = NormalizeUrl(config.RemoteUrl ?? "");
         var http = new HttpClient();
 
