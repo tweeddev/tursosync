@@ -1,5 +1,4 @@
 using System.Collections;
-using System.ComponentModel;
 using System.Data;
 using System.Data.Common;
 using System.Globalization;
@@ -152,8 +151,16 @@ public sealed class TursoDataReader : DbDataReader
         TursoValueKind.Real => "REAL",
         TursoValueKind.Text => "TEXT",
         TursoValueKind.Blob => "BLOB",
-        _ => throw new InvalidEnumArgumentException(nameof(ordinal)),
+        // Unknown happens when no row is current (e.g. DbEnumerator/foreach builds the schema before the
+        // first Read). Fall back to the declared column type instead of throwing, so enumeration works.
+        _ => DataTypeNameFromClrType(GetFieldType(ordinal)),
     };
+
+    private static string DataTypeNameFromClrType(Type type) =>
+        type == typeof(long) ? "INTEGER"
+        : type == typeof(double) ? "REAL"
+        : type == typeof(byte[]) ? "BLOB"
+        : "TEXT";
 
     /// <inheritdoc/>
     public override bool GetBoolean(int ordinal) => GetInt64(ordinal) != 0;

@@ -101,9 +101,15 @@ public class TursoReaderExtrasTests
         cmd.CommandText = "SELECT id FROM t ORDER BY id";
         using var reader = cmd.ExecuteReader();
 
-        // NOTE: foreach over the reader (DbEnumerator) is NOT exercised here — it calls GetDataTypeName
-        // before the first row, which currently throws on the Unknown value kind (see GetDataTypeName).
-        reader.GetEnumerator().Should().NotBeNull();
+        // foreach drives DbEnumerator, which builds schema (GetName/GetFieldType/GetDataTypeName) before the
+        // first row — GetDataTypeName must not throw on the Unknown value kind for this to work.
+        var count = 0;
+        foreach (var _ in (System.Collections.IEnumerable)reader)
+        {
+            count++;
+        }
+
+        count.Should().Be(3);
         reader.NextResult().Should().BeFalse();   // single statement → no further results
     }
 
