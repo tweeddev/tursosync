@@ -83,12 +83,22 @@ Remaining gaps: error/edge branches in Command/Reader/Pool/Extensions; trivial c
 
 ## Open items / next steps
 
-1. **Version decision:** recommend cutting **`0.1.0`** (drop `-preview`) as the first real release. **Hold
-   `1.0.0`** until: the Turso **engine reaches a stable (non-pre) release**, the **remote-sync path has
-   coverage**, and **sync-lane at-rest encryption** is validated (known gap; base-lane encryption works).
+1. **Version decision:** recommend cutting **`0.1.0`** (drop `-preview`) as the first real release. Two of
+   the original `1.0.0` holds are now cleared — the **remote-sync path has coverage** (item 2) and
+   **sync-lane at-rest encryption is resolved** (below) — so **`1.0.0`** now waits only on the Turso
+   **engine reaching a stable (non-pre) release**.
+   - **Sync-lane at-rest encryption (resolved):** *not supported upstream*, not merely untested. The Go
+     binding this was ported from has no encryption fields on its sync config; the engine plumbs only a
+     *remote* (Turso Cloud) encryption key, never the local pager cipher, and a synced DB created with a
+     cipher writes a page it cannot reopen (`Decryption failed for page=1`). `TursoSyncDatabase.Create` now
+     **throws `NotSupportedException`** when a cipher is set, instead of silently producing a lost-on-reopen
+     DB. Local at-rest encryption stays a **base-engine** feature (local-only connection → `OpenLocal`;
+     covered by `Encryption_RoundTrips_AndRejectsWrongKey`). Wiring the engine's *remote* key
+     (`RemoteEncryptionKey`/`RemoteEncryptionCipher`, already on the native struct) for Cloud encrypted DBs is
+     separate future work (needs a Cloud DB to validate).
 2. ~~**Biggest test gap:** add a gated live-sync integration test.~~ **Done** — `LiveSyncIntegrationTests`
    spawns `tursodb --sync-server` and round-trips Push/Pull/Stats/Checkpoint; CI builds the server and runs
-   them for real on all 3 OSes. (Sync-lane at-rest encryption is still unvalidated — see item 1.)
+   them for real on all 3 OSes.
 3. **engine-bump PRs:** to get CI to run on the bot PR, add repo secret **`BUMP_PAT`** + enable "Allow GitHub
    Actions to create and approve pull requests."
 
