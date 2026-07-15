@@ -77,6 +77,14 @@ public sealed record TursoSyncConfig
     public int BusyTimeoutMs { get; init; } = 5000;
 
     /// <summary>
+    /// Optional hint, in bytes, to chunk the initial bootstrap download into multiple <c>/pull-updates</c>
+    /// requests (each covering the smallest contiguous page range whose size reaches this threshold), rather
+    /// than fetching the whole database in one round-trip. 0 (default) bootstraps in a single request. Useful
+    /// for large remote databases where a single response would be unwieldy.
+    /// </summary>
+    public long PullBytesThreshold { get; init; }
+
+    /// <summary>
     /// Local at-rest encryption cipher name (e.g. <c>aes256gcm</c>); null disables encryption.
     /// <para><b>Base-engine lane only.</b> At-rest encryption applies to a local-only database (no
     /// <see cref="RemoteUrl"/>, sync disabled). The sync engine does not support it — creating a synced

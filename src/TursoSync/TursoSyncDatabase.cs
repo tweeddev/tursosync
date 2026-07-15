@@ -69,6 +69,7 @@ public sealed class TursoSyncDatabase : IDisposable
                 ClientName = strings.Utf8(config.ClientName),
                 LongPollTimeoutMs = config.LongPollTimeoutMs,
                 BootstrapIfEmpty = config.BootstrapIfEmpty,
+                PullBytesThreshold = (nuint)Math.Max(0, config.PullBytesThreshold),
             };
 
             var status = TursoNative.SyncDatabaseNew(ref dbConfig, ref syncConfig, out db, out var errorPtr);
