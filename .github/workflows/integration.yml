@@ -1,8 +1,9 @@
 name: Integration
 
-# Full lane — builds the Turso native (Release + FTS) and the `tursodb` sync server at the pinned engine ref
-# (turso-engine.json), then runs the whole suite for real, including the live-sync integration tests that
-# spawn `tursodb --sync-server`. This is the only lane that exercises the native + remote sync path.
+# Full lane — builds the Turso sync native (Release + FTS) from source and downloads the prebuilt `tursodb`
+# sync server, both at the pinned engine ref (turso-engine.json), then runs the whole suite for real,
+# including the live-sync integration tests that spawn `tursodb --sync-server`. This is the only lane that
+# exercises the native + remote sync path.
 #
 # It is GATED so it doesn't rebuild the engine on every commit:
 #   - push to main             — validate merges AND warm the binary cache on the default branch
@@ -52,7 +53,10 @@ jobs:
         run: |
           sha=$(grep -oE '"sha"[[:space:]]*:[[:space:]]*"[0-9a-f]+"' turso-engine.json | grep -oE '[0-9a-f]{7,40}')
           [ -n "$sha" ] || { echo "::error::no sha in turso-engine.json"; exit 1; }
+          tag=$(grep -oE '"tag"[[:space:]]*:[[:space:]]*"[^"]+"' turso-engine.json | grep -oE 'v[0-9][^"]*')
+          [ -n "$tag" ] || { echo "::error::no tag in turso-engine.json"; exit 1; }
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -87,12 +91,15 @@ jobs:
       # an unchanged engine pin, and a cold build only happens when the pin (and thus this key) changes — when
       # a dep cache for the new SHA wouldn't exist anyway. A ~600 MB/OS rust-cache would be dead weight that
       # just crowds the 10 GB repo cache budget and evicts the small turso-bin caches that do the real work.
-      - name: Build Turso native (Release, FTS) + sync server (tursodb)
+      # Only the sync native (turso_sync_sdk_kit) is built from source — it is NOT published prebuilt anywhere
+      # (the release ships only the turso_cli/tursodb binaries; the official Turso.Data.Sqlite NuGet ships the
+      # *base* turso_sdk_kit, which lacks the sync engine + FTS). tursodb, by contrast, IS a published release
+      # artifact, so we download it instead of a second cargo build.
+      - name: Build Turso sync native (Release, FTS)
         if: steps.turso-bin.outputs.cache-hit != 'true'
         shell: bash
         run: |
           cargo build --manifest-path turso/Cargo.toml -p turso_sync_sdk_kit --features turso_sdk_kit/fts --release
-          cargo build --manifest-path turso/Cargo.toml -p turso_cli --release
           mkdir -p turso-bin
           # cdylib name varies by OS (lib*.so / lib*.dylib / *.dll); copy whichever exists.
           for f in turso/target/release/*turso_sync_sdk_kit*.so \
@@ -100,9 +107,29 @@ jobs:
                    turso/target/release/*turso_sync_sdk_kit*.dll; do
             [ -f "$f" ] && cp "$f" turso-bin/
           done
-          exe=""
-          [ "${{ runner.os }}" = "Windows" ] && exe=".exe"
-          cp "turso/target/release/tursodb$exe" turso-bin/
+
+      - name: Download tursodb sync server (prebuilt release artifact)
+        if: steps.turso-bin.outputs.cache-hit != 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p turso-bin
+          case "${{ runner.os }}-$(uname -m)" in
+            Linux-x86_64)   triple=x86_64-unknown-linux-gnu;  ext=tar.xz ;;
+            Linux-aarch64)  triple=aarch64-unknown-linux-gnu; ext=tar.xz ;;
+            macOS-arm64)    triple=aarch64-apple-darwin;       ext=tar.xz ;;
+            macOS-x86_64)   triple=x86_64-apple-darwin;        ext=tar.xz ;;
+            Windows-x86_64) triple=x86_64-pc-windows-msvc;     ext=zip ;;
+            *) echo "::error::unmapped runner ${{ runner.os }}-$(uname -m)"; exit 1 ;;
+          esac
+          asset="turso_cli-${triple}.${ext}"
+          gh release download "${{ steps.pin.outputs.tag }}" --repo tursodatabase/turso -p "$asset" -O "$asset"
+          rm -rf turso-cli-extract && mkdir turso-cli-extract
+          if [ "$ext" = "zip" ]; then unzip -q -o "$asset" -d turso-cli-extract; else tar -xf "$asset" -C turso-cli-extract; fi
+          bin=$(find turso-cli-extract -type f -name 'tursodb*' | head -1)
+          [ -n "$bin" ] || { echo "::error::tursodb not found in $asset"; exit 1; }
+          cp "$bin" turso-bin/
 
       - name: Export native + server paths
         shell: bash
