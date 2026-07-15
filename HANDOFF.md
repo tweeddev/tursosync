@@ -45,7 +45,7 @@ OIDC + created the GitHub Release). The earlier `0.1.0-preview.1` remains on the
   env var **`TURSOSYNC_NATIVE_DIR`** → a folder holding the built native. `TursoNativeLibrary` also walks up
   for a `reference/turso-main/target/...` checkout as a dev convenience.
 - **Engine pin:** `turso-engine.json` (tag + commit SHA) is the **source of truth**; CI/release read it.
-  Currently `v0.7.0-pre.8` → `bfcf68f992479b3deb946da5baf2a9b17937463a`.
+  Currently `v0.7.0` → `e7cb62a8bd2f3655a661a621ee389365c1a1e43e`.
 
 ## CI / release (`.github/workflows/`)
 
