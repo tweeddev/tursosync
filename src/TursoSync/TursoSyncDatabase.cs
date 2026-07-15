@@ -381,42 +381,22 @@ public sealed class TursoSyncDatabase : IDisposable
             Check(status, IntPtr.Zero, "io_request_http");
 
             var path = SliceToString(req.Path);
-            using var message = new HttpRequestMessage(new HttpMethod(SliceToString(req.Method)), JoinUrl(_baseUrl, path));
 
-            var body = SliceToBytes(req.Body);
-            if (body is not null)
-            {
-                message.Content = new ByteArrayContent(body);
-            }
-
+            var headers = new List<KeyValuePair<string, string>>(req.Headers);
             for (var i = 0; i < req.Headers; i++)
             {
                 var hs = TursoNative.SyncIoRequestHttpHeader(item, (nuint)i, out var header);
                 Check(hs, IntPtr.Zero, "io_request_http_header");
-                var key = SliceToString(header.Key);
-                if (key.Length == 0)
-                {
-                    continue;
-                }
-
-                var value = SliceToString(header.Value);
-                if (!message.Headers.TryAddWithoutValidation(key, value))
-                {
-                    message.Content?.Headers.TryAddWithoutValidation(key, value);
-                }
+                headers.Add(new KeyValuePair<string, string>(SliceToString(header.Key), SliceToString(header.Value)));
             }
 
-            if (!string.IsNullOrEmpty(_authToken))
-            {
-                message.Headers.TryAddWithoutValidation("Authorization", "Bearer " + _authToken);
-            }
-
-            if (!message.Headers.Contains("User-Agent"))
-            {
-                message.Headers.TryAddWithoutValidation("User-Agent", "tweed-turso");
-            }
-
-            message.Headers.Host = BuildHost(_baseUrl, _namespace);
+            using var message = BuildHttpMessage(
+                SliceToString(req.Method),
+                JoinUrl(_baseUrl, path),
+                BodyFromSlice(req.Body),
+                headers,
+                _authToken,
+                BuildHost(_baseUrl, _namespace));
 
             using var response = _http.Send(message, HttpCompletionOption.ResponseHeadersRead);
             TursoNative.SyncIoStatus(item, (int)response.StatusCode);
@@ -547,6 +527,65 @@ public sealed class TursoSyncDatabase : IDisposable
         throw new TursoException($"{ctx}: status {status}");
     }
 
+    /// <summary>
+    /// Marshal an HTTP request-body slice, preserving the None/Some(empty) distinction the sync engine relies
+    /// on. A null pointer means the engine attached no body; a non-null pointer with length 0 means it attached
+    /// an empty body (an all-default protobuf — e.g. the initial <c>/pull-updates</c> request — encodes to zero
+    /// bytes, which the sdk-kit hands back as a dangling-but-non-null <c>0x1</c> slice). The empty case must
+    /// still produce a body: without one the <c>content-type</c> header cannot attach and no
+    /// <c>Content-Length: 0</c> is sent, and Turso Cloud then content-negotiates <c>/pull-updates</c> as JSON
+    /// and rejects it with HTTP 400. The self-hosted sync server tolerates a missing body because it decodes as
+    /// protobuf, which is why this only surfaced against the cloud round-trip.
+    /// </summary>
+    internal static byte[]? BodyFromSlice(TursoSlice slice) =>
+        slice.Ptr == IntPtr.Zero ? null : SliceToBytes(slice) ?? [];
+
+    /// <summary>
+    /// Build the outgoing <see cref="HttpRequestMessage"/> from the sync engine's request: attach the body
+    /// (when present, including an empty one), route each engine header to request- or content-headers, add the
+    /// bearer auth and a default User-Agent, and set the Host. Pure and native-free so it can be unit-tested.
+    /// </summary>
+    internal static HttpRequestMessage BuildHttpMessage(
+        string method,
+        string url,
+        byte[]? body,
+        IReadOnlyList<KeyValuePair<string, string>> headers,
+        string? authToken,
+        string? host)
+    {
+        var message = new HttpRequestMessage(new HttpMethod(method), url);
+        if (body is not null)
+        {
+            message.Content = new ByteArrayContent(body);
+        }
+
+        foreach (var header in headers)
+        {
+            if (header.Key.Length == 0)
+            {
+                continue;
+            }
+
+            if (!message.Headers.TryAddWithoutValidation(header.Key, header.Value))
+            {
+                message.Content?.Headers.TryAddWithoutValidation(header.Key, header.Value);
+            }
+        }
+
+        if (!string.IsNullOrEmpty(authToken))
+        {
+            message.Headers.TryAddWithoutValidation("Authorization", "Bearer " + authToken);
+        }
+
+        if (!message.Headers.Contains("User-Agent"))
+        {
+            message.Headers.TryAddWithoutValidation("User-Agent", "tweed-turso");
+        }
+
+        message.Headers.Host = host;
+        return message;
+    }
+
     private static byte[]? SliceToBytes(TursoSlice slice)
     {
         if (slice.Ptr == IntPtr.Zero || slice.Len == 0)
@@ -566,12 +605,12 @@ public sealed class TursoSyncDatabase : IDisposable
         return bytes is null ? string.Empty : Encoding.UTF8.GetString(bytes);
     }
 
-    private static string NormalizeUrl(string url) =>
+    internal static string NormalizeUrl(string url) =>
         url.StartsWith("libsql://", StringComparison.OrdinalIgnoreCase)
             ? "https://" + url["libsql://".Length..]
             : url;
 
-    private static string JoinUrl(string baseUrl, string path)
+    internal static string JoinUrl(string baseUrl, string path)
     {
         if (!path.StartsWith('/'))
         {
@@ -581,7 +620,7 @@ public sealed class TursoSyncDatabase : IDisposable
         return baseUrl.TrimEnd('/') + path;
     }
 
-    private static string? BuildHost(string baseUrl, string? ns)
+    internal static string? BuildHost(string baseUrl, string? ns)
     {
         if (string.IsNullOrEmpty(baseUrl) || !Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri))
         {
