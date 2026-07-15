@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.Sockets;
 using Turso;
 
 namespace TursoSync.Tests;
@@ -342,6 +344,261 @@ public class TursoSyncBehaviorTests
         }
     }
 
+    [TestMethod]
+    public void RemoteSync_LargeDataset_ChunkedBootstrap_RoundTrips()
+    {
+        var (url, token) = RemoteOrSkip();
+
+        // Push a multi-hundred-KB database, then bootstrap a fresh reader with a small PullBytesThreshold so
+        // the download is chunked into several /pull-updates requests. Exercises both the chunked-bootstrap
+        // path and the C# response-stream reassembly (PumpStream); a chunking or reassembly bug corrupts or
+        // loses rows, which the count + checksum catch.
+        var table = "sync_big_" + Guid.NewGuid().ToString("n");
+        const int rows = 3000;
+        var payload = new string('p', 300);
+        var writerPath = TempDb();
+        var readerPath = TempDb();
+        try
+        {
+            using (var writer = TursoSyncDatabase.Create(RemoteConfig(writerPath, url, token)))
+            {
+                using (var conn = TursoRawConnection.Open(writer))
+                {
+                    conn.Execute($"CREATE TABLE {table} (id INTEGER PRIMARY KEY, payload TEXT)");
+                    for (var i = 1; i <= rows; i++)
+                    {
+                        conn.Execute($"INSERT INTO {table} (id, payload) VALUES ({i}, '{payload}')");
+                    }
+                }
+
+                writer.Push();
+            }
+
+            // 64 KB threshold over a ~1 MB database => many chunks.
+            var reader = TursoSyncDatabase.Create(new TursoSyncConfig
+            {
+                Path = readerPath,
+                RemoteUrl = url,
+                AuthToken = token,
+                BootstrapIfEmpty = true,
+                PullBytesThreshold = 64 * 1024,
+            });
+            using (reader)
+            {
+                using var readConn = TursoRawConnection.Open(reader);
+                readConn.QueryScalar($"SELECT count(*) FROM {table}").Should().Be((long)rows);
+                readConn.QueryScalar($"SELECT sum(id) FROM {table}").Should().Be((long)rows * (rows + 1) / 2);
+                readConn.QueryScalar($"SELECT payload FROM {table} WHERE id = {rows}").Should().Be(payload);
+            }
+        }
+        finally
+        {
+            DropRemoteTable(url, token, table);
+            Cleanup(writerPath);
+            Cleanup(readerPath);
+        }
+    }
+
+    [TestMethod]
+    public void RemoteSync_ServerError_SurfacesAsException()
+    {
+        if (!TursoNativeLibrary.IsAvailable())
+        {
+            Assert.Inconclusive("turso_sync_sdk_kit native library not found");
+            return;
+        }
+
+        // A remote that answers 5xx during bootstrap must fail loudly, not hang or hand back an empty database.
+        // Uses a local stub so it needs no cloud credentials — only the native. Guards the HTTP IO handler's
+        // error propagation (the engine surfaces the non-2xx status as a TursoException out of Create).
+        using var server = StubHttpServer.Start(HttpStatusCode.InternalServerError);
+        var dbPath = TempDb();
+        try
+        {
+            var act = () => TursoSyncDatabase.Create(new TursoSyncConfig
+            {
+                Path = dbPath,
+                RemoteUrl = server.BaseUrl,
+                BootstrapIfEmpty = true,
+            });
+            act.Should().Throw<TursoException>();
+        }
+        finally
+        {
+            Cleanup(dbPath);
+        }
+    }
+
+    [TestMethod]
+    public void RemoteSync_ConcurrentWriters_DifferentKeys_BothMerge()
+    {
+        var (url, token) = RemoteOrSkip();
+
+        // Two independent clients writing different rows must both land after a pull-rebase — neither clobbers
+        // the other. Models the everyday multi-writer case (distinct from a same-key conflict).
+        var table = "sync_cc_" + Guid.NewGuid().ToString("n");
+        var seedPath = TempDb();
+        var aPath = TempDb();
+        var bPath = TempDb();
+        var readerPath = TempDb();
+        try
+        {
+            using (var seed = TursoSyncDatabase.Create(RemoteConfig(seedPath, url, token)))
+            {
+                using (var conn = TursoRawConnection.Open(seed))
+                {
+                    conn.Execute($"CREATE TABLE {table} (k INTEGER PRIMARY KEY, v TEXT)");
+                    conn.Execute($"INSERT INTO {table} (k, v) VALUES (0, 'seed')");
+                }
+
+                seed.Push();
+            }
+
+            using (var a = TursoSyncDatabase.Create(RemoteConfig(aPath, url, token)))
+            using (var b = TursoSyncDatabase.Create(RemoteConfig(bPath, url, token)))
+            {
+                using (var connA = TursoRawConnection.Open(a))
+                {
+                    connA.Execute($"INSERT INTO {table} (k, v) VALUES (1, 'from-a')");
+                }
+
+                a.Push();
+
+                using (var connB = TursoRawConnection.Open(b))
+                {
+                    connB.Execute($"INSERT INTO {table} (k, v) VALUES (2, 'from-b')");
+                }
+
+                b.Pull();   // rebase onto A's committed change
+                b.Push();
+            }
+
+            using var reader = TursoSyncDatabase.Create(RemoteConfig(readerPath, url, token));
+            reader.Pull();
+            using var readConn = TursoRawConnection.Open(reader);
+            readConn.QueryScalar($"SELECT v FROM {table} WHERE k = 1").Should().Be("from-a");
+            readConn.QueryScalar($"SELECT v FROM {table} WHERE k = 2").Should().Be("from-b");
+            readConn.QueryScalar($"SELECT count(*) FROM {table}").Should().Be(3L);
+        }
+        finally
+        {
+            DropRemoteTable(url, token, table);
+            Cleanup(seedPath);
+            Cleanup(aPath);
+            Cleanup(bPath);
+            Cleanup(readerPath);
+        }
+    }
+
+    [TestMethod]
+    public void RemoteSync_ConcurrentWriters_SameKey_ConvergesToOneRow()
+    {
+        var (url, token) = RemoteOrSkip();
+
+        // Two clients writing the SAME new key then pushing must converge to a single, consistent row — the
+        // late push may fail with a conflict, but the remote must never end up corrupt or with a duplicate PK.
+        // Which value wins is engine-defined, so assert only the invariant (one row, value is one of the two).
+        var table = "sync_conf_" + Guid.NewGuid().ToString("n");
+        var seedPath = TempDb();
+        var aPath = TempDb();
+        var bPath = TempDb();
+        var readerPath = TempDb();
+        try
+        {
+            using (var seed = TursoSyncDatabase.Create(RemoteConfig(seedPath, url, token)))
+            {
+                using (var conn = TursoRawConnection.Open(seed))
+                {
+                    conn.Execute($"CREATE TABLE {table} (k INTEGER PRIMARY KEY, v TEXT)");
+                }
+
+                seed.Push();
+            }
+
+            using (var a = TursoSyncDatabase.Create(RemoteConfig(aPath, url, token)))
+            using (var b = TursoSyncDatabase.Create(RemoteConfig(bPath, url, token)))
+            {
+                using (var connA = TursoRawConnection.Open(a))
+                {
+                    connA.Execute($"INSERT INTO {table} (k, v) VALUES (1, 'from-a')");
+                }
+
+                using (var connB = TursoRawConnection.Open(b))
+                {
+                    connB.Execute($"INSERT INTO {table} (k, v) VALUES (1, 'from-b')");
+                }
+
+                a.Push();
+
+                // B is now behind and holds a conflicting local insert; a pull-rebase or push may throw. Either
+                // outcome is acceptable so long as the remote stays consistent (checked below).
+                try
+                {
+                    b.Pull();
+                    b.Push();
+                }
+                catch (TursoException)
+                {
+                    // conflict surfaced cleanly — acceptable
+                }
+            }
+
+            using var reader = TursoSyncDatabase.Create(RemoteConfig(readerPath, url, token));
+            reader.Pull();
+            using var readConn = TursoRawConnection.Open(reader);
+            readConn.QueryScalar($"SELECT count(*) FROM {table} WHERE k = 1").Should().Be(1L);
+            readConn.QueryScalar($"SELECT v FROM {table} WHERE k = 1").Should().BeOfType<string>()
+                .Which.Should().BeOneOf("from-a", "from-b");
+        }
+        finally
+        {
+            DropRemoteTable(url, token, table);
+            Cleanup(seedPath);
+            Cleanup(aPath);
+            Cleanup(bPath);
+            Cleanup(readerPath);
+        }
+    }
+
+    [TestMethod]
+    public void RemoteSync_Checkpoint_AgainstCloud()
+    {
+        var (url, token) = RemoteOrSkip();
+
+        // Parity with the self-hosted checkpoint test, but end-to-end against Turso Cloud: fill the WAL,
+        // checkpoint it away, then push and confirm the checkpointed data reached the remote.
+        var table = "sync_ckpt_" + Guid.NewGuid().ToString("n");
+        var dbPath = TempDb();
+        try
+        {
+            using (var db = TursoSyncDatabase.Create(RemoteConfig(dbPath, url, token)))
+            {
+                using (var conn = TursoRawConnection.Open(db))
+                {
+                    conn.Execute($"CREATE TABLE {table} (x INTEGER)");
+                    for (var i = 0; i < 1024; i++)
+                    {
+                        conn.Execute($"INSERT INTO {table} VALUES ({i})");
+                    }
+                }
+
+                db.Checkpoint();
+                db.Stats().MainWalSize.Should().Be(0);
+                db.Push();
+            }
+
+            using var reader = TursoSyncDatabase.Create(RemoteConfig(TempDb(), url, token));
+            reader.Pull();
+            using var readConn = TursoRawConnection.Open(reader);
+            readConn.QueryScalar($"SELECT sum(x) FROM {table}").Should().Be(1024L * 1023L / 2L);
+        }
+        finally
+        {
+            DropRemoteTable(url, token, table);
+            Cleanup(dbPath);
+        }
+    }
+
     // ---- remote-sync harness -----------------------------------------------------------------------
 
     /// <summary>Skip (Inconclusive) unless the native and the cloud sync credentials are both present.</summary>
@@ -399,6 +656,89 @@ public class TursoSyncBehaviorTests
         if (dir is not null && Directory.Exists(dir))
         {
             Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// A minimal loopback HTTP server that answers every request with a fixed status code, for exercising the
+    /// sync engine's error-propagation path without any real remote. Drains and closes each request.
+    /// </summary>
+    private sealed class StubHttpServer : IDisposable
+    {
+        private readonly HttpListener _listener;
+        private readonly HttpStatusCode _status;
+
+        private StubHttpServer(HttpListener listener, int port, HttpStatusCode status)
+        {
+            _listener = listener;
+            _status = status;
+            BaseUrl = $"http://localhost:{port}";
+        }
+
+        public string BaseUrl { get; }
+
+        public static StubHttpServer Start(HttpStatusCode status)
+        {
+            var port = FreePort();
+            var listener = new HttpListener();
+            listener.Prefixes.Add($"http://localhost:{port}/");
+            listener.Start();
+            var server = new StubHttpServer(listener, port, status);
+            _ = server.LoopAsync();
+            return server;
+        }
+
+        private async Task LoopAsync()
+        {
+            while (_listener.IsListening)
+            {
+                HttpListenerContext ctx;
+                try
+                {
+                    ctx = await _listener.GetContextAsync();
+                }
+                catch
+                {
+                    return; // listener stopped
+                }
+
+                try
+                {
+                    ctx.Response.StatusCode = (int)_status;
+                    ctx.Response.Close();
+                }
+                catch
+                {
+                    // best-effort — the client may have already given up
+                }
+            }
+        }
+
+        public void Dispose()
+        {
+            try
+            {
+                _listener.Stop();
+                _listener.Close();
+            }
+            catch
+            {
+                // best-effort teardown
+            }
+        }
+
+        private static int FreePort()
+        {
+            var listener = new TcpListener(IPAddress.Loopback, 0);
+            listener.Start();
+            try
+            {
+                return ((IPEndPoint)listener.LocalEndpoint).Port;
+            }
+            finally
+            {
+                listener.Stop();
+            }
         }
     }
 }
