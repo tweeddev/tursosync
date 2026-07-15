@@ -94,6 +94,19 @@ Feature-complete relative to the official `Turso.Data` + `Turso.Raw` surface (se
 [TURSO-PARITY.md](TURSO-PARITY.md)), plus the sync layer. The underlying Turso engine is **beta**; one known
 gap is sync-lane at-rest encryption (base-lane encryption is supported).
 
+## Testing
+
+`rig test` (or `dotnet test`) runs the unit suite. The **live sync** suites are gated on environment
+variables and report `Inconclusive` (skip) when unset:
+
+- `LiveSyncIntegrationTests` — needs `TURSOSYNC_SYNC_SERVER` pointing at a `tursodb` binary; the harness
+  starts a `tursodb --sync-server` on a free port per test.
+- `TursoSyncBehaviorTests` — needs `TWEED_TURSO_SYNC_URL` (+ `TWEED_TURSO_SYNC_TOKEN`) for a real Turso
+  Cloud round-trip.
+
+Copy [.env.example](.env.example) to `.env` at the repo root and fill in what you have — the test project
+loads it automatically. Real environment variables (and CI, which exports these) always take precedence.
+
 ## Releasing
 
 Releases are driven by [shipRig](https://rigsmith.dev) (changesets) — config in `.changeset/`.
