@@ -4,7 +4,7 @@ using System.Data.Common;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 
-namespace Turso;
+namespace Turso.Sync;
 
 /// <summary>
 /// A bind parameter for <see cref="TursoCommand"/>. Mirrors the official <c>Turso.Data</c> parameter: only

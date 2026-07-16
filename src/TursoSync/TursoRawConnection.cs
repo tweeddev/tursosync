@@ -1,7 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace Turso;
+namespace Turso.Sync;
 
 /// <summary>
 /// A SQL connection over a synced Turso database. Wraps a raw <c>turso_connection_t</c> and drives the

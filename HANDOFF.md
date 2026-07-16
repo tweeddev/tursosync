@@ -45,7 +45,7 @@ OIDC + created the GitHub Release). The earlier `0.1.0-preview.1` remains on the
   env var **`TURSOSYNC_NATIVE_DIR`** → a folder holding the built native. `TursoNativeLibrary` also walks up
   for a `reference/turso-main/target/...` checkout as a dev convenience.
 - **Engine pin:** `turso-engine.json` (tag + commit SHA) is the **source of truth**; CI/release read it.
-  Currently `v0.7.0-pre.8` → `bfcf68f992479b3deb946da5baf2a9b17937463a`.
+  Currently `v0.7.0` → `e7cb62a8bd2f3655a661a621ee389365c1a1e43e`.
 
 ## CI / release (`.github/workflows/`)
 
@@ -81,7 +81,7 @@ from the earlier 64.9%/35-test baseline). The **remote-sync path** (Push/Pull/St
 handler) is exercised for real by `LiveSyncIntegrationTests` — they spawn a self-hosted `tursodb --sync-server`
 (gated on **`TURSOSYNC_SYNC_SERVER`** → a `tursodb` binary; locally `cargo build -p turso_cli --release` then
 export the path). Native-dependent tests skip in the fast lane and run in `integration.yml`. The external-cloud
-round-trip (`PushPull_RoundTripsThroughRemote`, gated on `TWEED_TURSO_SYNC_URL`) remains for real Turso Cloud.
+round-trip (`PushPull_RoundTripsThroughRemote`, gated on `TURSOSYNC_SYNC_URL`) remains for real Turso Cloud.
 Remaining gaps: residual error/edge branches; trivial ctors in TursoException; TursoStats/EncryptionCipher names.
 
 ## CI lanes

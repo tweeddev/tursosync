@@ -4,12 +4,18 @@
 [![NuGet](https://img.shields.io/nuget/v/TursoSync.svg)](https://www.nuget.org/packages/TursoSync)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-A **drop-in ADO.NET provider for [Turso](https://github.com/tursodatabase/turso)** (namespace `Turso`) with
-**local↔cloud sync** and **tantivy full-text search** — the pieces the official `Turso.Data` binding doesn't
-ship yet. Same API surface, so existing `Turso.Data` code compiles unchanged; the sync engine is the add-on.
+The **offline-sync + full-text-search layer for [Turso](https://github.com/tursodatabase/turso) on .NET.**
+It adds **local↔cloud replication** (push/pull/checkpoint against the Turso sync engine) and **tantivy
+full-text search** — the pieces the official [`Turso.Data.Sqlite`](https://www.nuget.org/packages/Turso.Data.Sqlite)
+binding doesn't ship. It carries a familiar ADO.NET surface (modeled on `Turso.Data`) so Dapper, DbUp and the
+`DbProviderFactory` pattern work, but in its **own `Turso.Sync` namespace** so it coexists with the official
+package rather than colliding with it.
+
+Reach for the **official `Turso.Data.Sqlite`** for base local/remote access, the SQLite-compat facade, EF Core,
+and NativeAOT. Reach for **TursoSync** when you need offline replication or FTS — the two are complementary.
 
 ```csharp
-using Turso;
+using Turso.Sync;
 
 // Local-only (offline fast path — plain engine, no sync overhead)
 await using var conn = new TursoConnection("Data Source=app.db");
@@ -27,7 +33,7 @@ synced.SyncDatabase!.Pull();   // pull + apply remote changes
 
 | Package | What |
 |---------|------|
-| [`TursoSync`](https://www.nuget.org/packages/TursoSync) | The ADO.NET provider (namespace `Turso`): connection/command/reader/parameter/transaction, `TursoFactory`, sync engine, UDFs, aggregates, collations, load-extension, local at-rest encryption, connection pooling. |
+| [`TursoSync`](https://www.nuget.org/packages/TursoSync) | The sync + FTS provider (namespace `Turso.Sync`): the sync engine (push/pull/checkpoint/stats), an ADO.NET surface (connection/command/reader/parameter/transaction, `TursoFactory`) to query synced databases, UDFs, aggregates, collations, load-extension, local at-rest encryption, connection pooling. |
 | [`TursoSync.DbUp`](https://www.nuget.org/packages/TursoSync.DbUp) | DbUp database provider — `DeployChanges.To.TursoDatabase(connectionString)`. |
 | [`TursoSync.Dapper`](https://www.nuget.org/packages/TursoSync.Dapper) | Dapper type handlers that round-trip `Ulid`, `DateTimeOffset` and `Guid` as portable `TEXT`. |
 
@@ -41,8 +47,9 @@ dotnet add package TursoSync.Dapper   # optional: Dapper type handlers
 
 - **Two lanes, one API.** No `Remote Url` → the plain local engine (`AsyncIO=0`, no IO pump); a remote (or
   `Sync=true`) → the sync engine. In **release** builds, local performance is on par with SQLite.
-- **Drop-in.** Public types live in namespace `Turso` (`TursoConnection`, `TursoCommand`, …) and work with
-  Dapper, DbUp and the `DbProviderFactory` pattern.
+- **Familiar surface, own namespace.** Public types live in namespace `Turso.Sync` (`TursoConnection`,
+  `TursoCommand`, …), modeled on `Turso.Data` so Dapper, DbUp and the `DbProviderFactory` pattern work — and
+  namespaced so a project can reference both this and the official `Turso.Data.Sqlite` without clashing.
 - **Connection pooling** on by default (`Pooling=false` to disable) — opening Turso is expensive, the pool
   makes the open-per-op pattern ~50× cheaper.
 - **Extensibility:** `CreateFunction` / `CreateAggregate` / `CreateCollation` / `EnableExtensions` /
@@ -65,7 +72,8 @@ release** — debug builds are ~25× slower.
 
 The Turso engine (the `turso_sync_sdk_kit` native) is **not vendored** — CI builds it from
 [tursodatabase/turso](https://github.com/tursodatabase/turso) at the commit pinned in
-[`turso-engine.json`](turso-engine.json). The C ABI is beta, so the pin keeps builds reproducible.
+[`turso-engine.json`](turso-engine.json), currently the stable **v0.7.0** release. The pin keeps builds
+reproducible and lets us validate each engine bump before adopting it.
 
 - Bump it with `scripts/bump-turso.sh <tag|latest>` (resolves the tag → commit SHA).
 - A weekly **Engine bump** workflow opens a PR when a newer release appears in the pinned series; CI builds
@@ -90,9 +98,25 @@ conn.CreateFunction("times_two", 1, args => Convert.ToInt64(args[0]) * 2);
 
 ## Status
 
-Feature-complete relative to the official `Turso.Data` + `Turso.Raw` surface (see
-[TURSO-PARITY.md](TURSO-PARITY.md)), plus the sync layer. The underlying Turso engine is **beta**; one known
-gap is sync-lane at-rest encryption (base-lane encryption is supported).
+TursoSync is the **sync + FTS complement** to the official [`Turso.Data.Sqlite`](https://www.nuget.org/packages/Turso.Data.Sqlite)
+binding, not a replacement for it. Base local/remote access, the SQLite-compat facade, EF Core and NativeAOT
+are official's domain — use that package directly for those. TursoSync owns the offline sync engine
+(push/pull/checkpoint) and tantivy FTS, and carries just enough of an ADO.NET surface (modeled on `Turso.Data`,
+see [TURSO-PARITY.md](TURSO-PARITY.md)) to query a synced database and support Dapper/DbUp. One known gap is
+sync-lane at-rest encryption (base-lane encryption is supported).
+
+## Testing
+
+`rig test` (or `dotnet test`) runs the unit suite. The **live sync** suites are gated on environment
+variables and report `Inconclusive` (skip) when unset:
+
+- `LiveSyncIntegrationTests` — needs `TURSOSYNC_SYNC_SERVER` pointing at a `tursodb` binary; the harness
+  starts a `tursodb --sync-server` on a free port per test.
+- `TursoSyncBehaviorTests` — needs `TURSOSYNC_SYNC_URL` (+ `TURSOSYNC_SYNC_TOKEN`) for a real Turso
+  Cloud round-trip.
+
+Copy [.env.example](.env.example) to `.env` at the repo root and fill in what you have — the test project
+loads it automatically. Real environment variables (and CI, which exports these) always take precedence.
 
 ## Releasing
 

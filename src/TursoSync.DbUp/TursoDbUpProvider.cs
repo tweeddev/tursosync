@@ -3,7 +3,7 @@ using DbUp.Engine;
 using DbUp.Engine.Output;
 using DbUp.Engine.Transactions;
 using DbUp.Support;
-using Turso;
+using Turso.Sync;
 
 namespace DbUp.Turso;
 

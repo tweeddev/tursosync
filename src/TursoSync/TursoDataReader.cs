@@ -4,7 +4,7 @@ using System.Data.Common;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 
-namespace Turso;
+namespace Turso.Sync;
 
 /// <summary>
 /// Forward-only reader over a <see cref="TursoRawStatement"/>. Mirrors the official <c>Turso.Data</c>

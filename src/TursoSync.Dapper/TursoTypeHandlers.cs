@@ -2,7 +2,7 @@ using System.Data;
 using System.Globalization;
 using Dapper;
 
-namespace Turso;
+namespace Turso.Sync;
 
 /// <summary>
 /// Dapper type handlers that round-trip <see cref="Ulid"/>, <see cref="DateTimeOffset"/> and

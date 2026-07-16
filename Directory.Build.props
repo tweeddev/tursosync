@@ -1,8 +1,8 @@
 <Project>
 
-  <!-- Shared settings + NuGet package metadata for the TursoSync package family. This tree has ZERO
-       dependency on the Tweed application; it is a standalone, drop-in-compatible Turso ADO.NET provider
-       (namespace `Turso`) with local↔cloud sync, plus optional DbUp and Dapper integration packages. -->
+  <!-- Shared settings + NuGet package metadata for the TursoSync package family: a standalone Turso
+       provider (namespace `Turso.Sync`) that adds local↔cloud sync and tantivy FTS on top of the official
+       Turso.Data surface, plus optional DbUp and Dapper integration packages. -->
   <PropertyGroup>
     <TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>
     <LangVersion>latest</LangVersion>
@@ -16,7 +16,6 @@
   <PropertyGroup>
     <Version>0.1.0</Version>
     <Authors>John Campion Jr</Authors>
-    <Company>Tweed</Company>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/tweeddev/tursosync</PackageProjectUrl>
     <RepositoryUrl>https://github.com/tweeddev/tursosync</RepositoryUrl>

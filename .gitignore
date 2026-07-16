@@ -7,3 +7,6 @@ TestResults/
 
 # Vendored engine/source checkouts (built locally; never committed)
 reference/
+
+# Local test secrets (live-sync gates: TURSOSYNC_SYNC_SERVER, TWEED_TURSO_SYNC_*)
+.env

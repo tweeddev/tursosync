@@ -1,5 +1,5 @@
 using System.Data.Common;
-using Turso;
+using Turso.Sync;
 
 namespace TursoSync.Tests;
 
@@ -11,7 +11,7 @@ namespace TursoSync.Tests;
 public class TursoExtensionsTests
 {
     private static string NewDb() =>
-        Path.Combine(Path.GetTempPath(), "tweed-turso-ext-" + Guid.NewGuid().ToString("n"), "store.db");
+        Path.Combine(Path.GetTempPath(), "tursosync-ext-" + Guid.NewGuid().ToString("n"), "store.db");
 
     private static TursoConnection Open(string path)
     {

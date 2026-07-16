@@ -1,4 +1,4 @@
-using Turso;
+using Turso.Sync;
 
 namespace TursoSync.Tests;
 
@@ -10,7 +10,7 @@ namespace TursoSync.Tests;
 public class TursoDataReaderTests
 {
     private static string NewDb() =>
-        Path.Combine(Path.GetTempPath(), "tweed-turso-rdr-" + Guid.NewGuid().ToString("n"), "store.db");
+        Path.Combine(Path.GetTempPath(), "tursosync-rdr-" + Guid.NewGuid().ToString("n"), "store.db");
 
     [TestMethod]
     public void TypedGetters_AcrossStorageClasses()

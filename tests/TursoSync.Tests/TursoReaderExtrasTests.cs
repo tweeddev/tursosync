@@ -1,4 +1,4 @@
-using Turso;
+using Turso.Sync;
 
 namespace TursoSync.Tests;
 
@@ -23,7 +23,7 @@ public class TursoReaderExtrasTests
     private string _dir = string.Empty;
 
     [TestInitialize]
-    public void Setup() => _dir = Path.Combine(Path.GetTempPath(), "tweed-turso-rdrx-" + Guid.NewGuid().ToString("n"));
+    public void Setup() => _dir = Path.Combine(Path.GetTempPath(), "tursosync-rdrx-" + Guid.NewGuid().ToString("n"));
 
     [TestCleanup]
     public void Teardown()

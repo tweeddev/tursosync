@@ -1,12 +1,12 @@
 using System.Collections.Concurrent;
 
-namespace Turso;
+namespace Turso.Sync;
 
 /// <summary>
 /// A small physical-connection pool for Turso, keyed by connection string. Opening a Turso connection is
 /// expensive — the sync lane re-reads metadata/bootstraps (~2.5x a base open), and even a base open +
-/// durable write costs ~80x a reused connection (measured). Tweed's store opens a connection per operation,
-/// so without pooling that cost dominates. ADO.NET's other providers (Npgsql, Microsoft.Data.Sqlite) pool
+/// durable write costs ~80x a reused connection (measured). Consumers that open a connection per operation
+/// pay that cost every time without pooling. ADO.NET's other providers (Npgsql, Microsoft.Data.Sqlite) pool
 /// by default; this gives Turso the same.
 /// </summary>
 internal static class TursoConnectionPool

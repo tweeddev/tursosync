@@ -1,4 +1,4 @@
-namespace Turso;
+namespace Turso.Sync;
 
 /// <summary>Public projection of Turso sync-engine statistics.</summary>
 /// <param name="CdcOperations">Local operations written since the last pull.</param>

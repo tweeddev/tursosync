@@ -1,22 +1,24 @@
-# Turso .NET bindings — parity map
+# Turso .NET — surface map vs. the official binding
 
-Parity validation between the upstream reference bindings
-(`reference/turso-main/bindings/dotnet/src`) and the Tweed implementation
-(`csharp-agents/src/Tweed.Store/Turso`).
+How TursoSync's ADO.NET surface (namespace `Turso.Sync`, in `src/TursoSync`) maps to the **official**
+[`Turso.Data.Sqlite`](https://www.nuget.org/packages/Turso.Data.Sqlite) binding (`bindings/dotnet` in
+[tursodatabase/turso](https://github.com/tursodatabase/turso)).
 
-The **Sync** column marks what's tied to Turso's remote-sync/replication feature —
-the area where Tweed and the reference diverge most (Tweed adds it; the reference has none).
+TursoSync is the **sync + FTS complement** to the official package, not a replacement. It deliberately models
+its connection/command/reader surface on `Turso.Data` for familiarity — but bound to the sync-capable
+`turso_sync_sdk_kit` native, so it can drive a *synced* database (which the official base native cannot). This
+map exists to keep that surface recognizable and to mark where the two diverge.
 
-_Snapshot: 2026-06-17 (feature-complete pass)._
+The **Sync** column marks what's tied to Turso's offline replication — the area unique to TursoSync (the
+official binding ships base + a per-statement remote HTTP client, but **no offline sync**).
 
-> **Status: feature complete for a standalone NuGet provider.** Every public type/member the reference
-> `Turso.Data` + `Turso.Raw` expose has a Tweed equivalent (factory, encryption, UDFs, aggregates,
-> collations, load-extension), plus the sync layer the reference lacks. Remaining differences are
-> intentional (see notes).
+> **Scope.** TursoSync intentionally does **not** reproduce official's SQLite-compat facade, EF Core provider,
+> NativeAOT static linking, or broad mobile/RID packaging — use `Turso.Data.Sqlite` directly for those. What's
+> mapped below is only the query surface needed to use a synced database, plus the sync engine official lacks.
 
-## 1. ADO.NET surface (Turso.Data ↔ Tweed) — strong parity
+## 1. ADO.NET surface (Turso.Data ↔ TursoSync) — strong parity
 
-| Reference (Turso.Data) | Tweed equivalent | Parity | Sync |
+| Reference (Turso.Data) | TursoSync equivalent | Parity | Sync |
 |------------------------|------------------|--------|------|
 | `TursoConnection : DbConnection` + `.ExecuteNonQuery(sql)` | `TursoConnection` — has `ExecuteNonQuery`, `OpenAsync` | ✅ match | — |
 | `TursoCommand : DbCommand` | `TursoCommand` | ✅ match | — |
@@ -29,9 +31,9 @@ _Snapshot: 2026-06-17 (feature-complete pass)._
 | `TursoFactory : DbProviderFactory` (`.Instance`) | `TursoFactory` (`.Instance`) + `TursoConnection.DbProviderFactory` override | ✅ match | — |
 | `TursoException` (in Turso.Raw) | `TursoException` + `TursoStats` record | ✅ match | — |
 
-## 2. Low-level / raw surface (Turso.Raw ↔ Tweed) — divergent by design
+## 2. Low-level / raw surface (Turso.Raw ↔ TursoSync) — divergent by design
 
-| Reference (Turso.Raw, public) | Tweed equivalent | Parity | Sync |
+| Reference (Turso.Raw, public) | TursoSync equivalent | Parity | Sync |
 |-------------------------------|------------------|--------|------|
 | `TursoBindings` (static P/Invoke API) | `TursoNative` — **`internal`**, not public | ⚠ intentionally hidden | — |
 | `TursoDatabaseHandle` / `TursoStatementHandle` (`SafeHandle`) | wrapped inside `TursoRawConnection` / `TursoRawStatement` (higher-level `IDisposable`) | ⚠ different abstraction | — |
@@ -42,9 +44,9 @@ _Snapshot: 2026-06-17 (feature-complete pass)._
 | `EnableLoadExtension` / `LoadExtension` | `TursoConnection.EnableExtensions` / `LoadExtension` | ✅ match | — |
 | 7 UDF callback delegates + `TursoExtensionValue*` | `TursoExtensions.cs` — same 7 delegates + `TursoExtensionValue`/`Union`/`Type` | ✅ match | — |
 
-## 3. Tweed-only — the sync layer (no reference counterpart)
+## 3. TursoSync-only — the sync layer (no reference counterpart)
 
-| Tweed type / member | Purpose | Sync |
+| TursoSync type / member | Purpose | Sync |
 |---------------------|---------|------|
 | `TursoSyncDatabase` — `Create`, `Connect`, `Push`, `Pull`, `Checkpoint`, `Stats`, `ProcessOneIo` | remote replication driver | ✅ **sync core** |
 | `TursoSyncConfig` — `RemoteUrl`, `AuthToken`, `Namespace`, `BootstrapIfEmpty`, `LongPollTimeoutMs`, `ClientName` | sync configuration | ✅ **sync** |
@@ -57,7 +59,7 @@ _Snapshot: 2026-06-17 (feature-complete pass)._
 **Feature complete.** The ADO.NET contract, the provider factory, encryption, and the full
 extensibility surface (UDFs, aggregates, collations, load-extension) all match the reference and
 are validated against the real engine (`TursoExtensionsTests`, `TursoNativeSmokeTests`). The
-sync/replication layer (§3) is Tweed's value-add with no reference equivalent.
+sync/replication layer (§3) is TursoSync's value-add with no reference equivalent.
 
 ### Closed since the first snapshot
 
