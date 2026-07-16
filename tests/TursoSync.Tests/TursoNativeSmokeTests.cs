@@ -1,4 +1,4 @@
-using Turso;
+using Turso.Sync;
 
 namespace TursoSync.Tests;
 
@@ -12,7 +12,7 @@ namespace TursoSync.Tests;
 public class TursoNativeSmokeTests
 {
     private static string NewDbPath() =>
-        Path.Combine(Path.GetTempPath(), "tweed-turso-" + Guid.NewGuid().ToString("n"), "store.db");
+        Path.Combine(Path.GetTempPath(), "tursosync-" + Guid.NewGuid().ToString("n"), "store.db");
 
     private static TursoSyncDatabase OpenLocal(string path) =>
         TursoSyncDatabase.Create(new TursoSyncConfig { Path = path, BootstrapIfEmpty = false });

@@ -1,6 +1,6 @@
 using System.Data;
 using System.Data.Common;
-using Turso;
+using Turso.Sync;
 
 namespace TursoSync.Tests;
 
@@ -26,7 +26,7 @@ public class TursoCommandTests
     private string _dir = string.Empty;
 
     [TestInitialize]
-    public void Setup() => _dir = Path.Combine(Path.GetTempPath(), "tweed-turso-cmd-" + Guid.NewGuid().ToString("n"));
+    public void Setup() => _dir = Path.Combine(Path.GetTempPath(), "tursosync-cmd-" + Guid.NewGuid().ToString("n"));
 
     [TestCleanup]
     public void Teardown()

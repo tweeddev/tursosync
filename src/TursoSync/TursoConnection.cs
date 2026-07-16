@@ -2,7 +2,7 @@ using System.Data;
 using System.Data.Common;
 using System.Diagnostics.CodeAnalysis;
 
-namespace Turso;
+namespace Turso.Sync;
 
 /// <summary>
 /// An ADO.NET <see cref="DbConnection"/> over a synced Turso database, at parity with the official

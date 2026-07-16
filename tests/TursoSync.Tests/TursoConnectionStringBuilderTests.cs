@@ -1,4 +1,4 @@
-using Turso;
+using Turso.Sync;
 
 namespace TursoSync.Tests;
 

@@ -1,13 +1,13 @@
 using System.Net;
 using System.Net.Sockets;
-using Turso;
+using Turso.Sync;
 
 namespace TursoSync.Tests;
 
 /// <summary>
 /// Behaviors ported from the Go binding's <c>driver_sync_test.go</c>. The config-surface and local-engine
 /// cases run offline; the remote round-trip cases (Push/Pull) mirror the Go tests but need a live Turso
-/// sync server, so they are gated on <c>TWEED_TURSO_SYNC_URL</c>/<c>TWEED_TURSO_SYNC_TOKEN</c> (same pattern
+/// sync server, so they are gated on <c>TURSOSYNC_SYNC_URL</c>/<c>TURSOSYNC_SYNC_TOKEN</c> (same pattern
 /// as the Neon-gated Postgres tests) and skip — not silently pass — when that infra is absent.
 /// </summary>
 [TestClass]
@@ -156,11 +156,11 @@ public class TursoSyncBehaviorTests
             return;
         }
 
-        var url = Environment.GetEnvironmentVariable("TWEED_TURSO_SYNC_URL");
-        var token = Environment.GetEnvironmentVariable("TWEED_TURSO_SYNC_TOKEN");
+        var url = Environment.GetEnvironmentVariable("TURSOSYNC_SYNC_URL");
+        var token = Environment.GetEnvironmentVariable("TURSOSYNC_SYNC_TOKEN");
         if (string.IsNullOrWhiteSpace(url))
         {
-            Assert.Inconclusive("Set TWEED_TURSO_SYNC_URL (+ TWEED_TURSO_SYNC_TOKEN) to run the remote sync round-trip.");
+            Assert.Inconclusive("Set TURSOSYNC_SYNC_URL (+ TURSOSYNC_SYNC_TOKEN) to run the remote sync round-trip.");
             return;
         }
 
@@ -609,11 +609,11 @@ public class TursoSyncBehaviorTests
             Assert.Inconclusive("turso_sync_sdk_kit native library not found");
         }
 
-        var url = Environment.GetEnvironmentVariable("TWEED_TURSO_SYNC_URL");
-        var token = Environment.GetEnvironmentVariable("TWEED_TURSO_SYNC_TOKEN");
+        var url = Environment.GetEnvironmentVariable("TURSOSYNC_SYNC_URL");
+        var token = Environment.GetEnvironmentVariable("TURSOSYNC_SYNC_TOKEN");
         if (string.IsNullOrWhiteSpace(url))
         {
-            Assert.Inconclusive("Set TWEED_TURSO_SYNC_URL (+ TWEED_TURSO_SYNC_TOKEN) to run the remote sync round-trip.");
+            Assert.Inconclusive("Set TURSOSYNC_SYNC_URL (+ TURSOSYNC_SYNC_TOKEN) to run the remote sync round-trip.");
         }
 
         return (url!, token);
@@ -645,7 +645,7 @@ public class TursoSyncBehaviorTests
 
     private static string TempDb()
     {
-        var dir = Path.Combine(Path.GetTempPath(), "tweed-turso-sync-" + Guid.NewGuid().ToString("n"));
+        var dir = Path.Combine(Path.GetTempPath(), "tursosync-sync-" + Guid.NewGuid().ToString("n"));
         Directory.CreateDirectory(dir);
         return Path.Combine(dir, "store.db");
     }

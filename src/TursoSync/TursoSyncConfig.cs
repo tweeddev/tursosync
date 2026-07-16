@@ -1,4 +1,4 @@
-namespace Turso;
+namespace Turso.Sync;
 
 /// <summary>Supported ciphers for local at-rest database encryption (mirrors the native engine).</summary>
 public enum TursoEncryptionCipher
@@ -61,8 +61,8 @@ public sealed record TursoSyncConfig
     /// <summary>Bearer token for remote auth; sent as <c>Authorization: Bearer …</c>.</summary>
     public string? AuthToken { get; init; }
 
-    /// <summary>Client-id prefix the engine records in metadata; defaults to <c>tweed-turso</c>.</summary>
-    public string ClientName { get; init; } = "tweed-turso";
+    /// <summary>Client-id prefix the engine records in metadata; defaults to <c>tursosync</c>.</summary>
+    public string ClientName { get; init; } = "tursosync";
 
     /// <summary>Long-poll timeout (ms) the server holds a pull open waiting for changes; 0 = off.</summary>
     public int LongPollTimeoutMs { get; init; }

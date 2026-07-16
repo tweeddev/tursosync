@@ -1,5 +1,5 @@
 using System.Data.Common;
-using Turso;
+using Turso.Sync;
 
 namespace TursoSync.Tests;
 

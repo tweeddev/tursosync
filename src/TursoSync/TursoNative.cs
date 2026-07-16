@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace Turso;
+namespace Turso.Sync;
 
 /// <summary>
 /// Turso status codes returned by the C ABI (<c>turso_status_code_t</c>). <see cref="Io"/> means the

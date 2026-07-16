@@ -1,6 +1,6 @@
 using System.Data.Common;
 
-namespace Turso;
+namespace Turso.Sync;
 
 /// <summary>
 /// <see cref="DbProviderFactory"/> for Turso, so code using the <c>DbProviderFactories</c> pattern (or

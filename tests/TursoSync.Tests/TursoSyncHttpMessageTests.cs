@@ -1,5 +1,5 @@
 using System.Runtime.InteropServices;
-using Turso;
+using Turso.Sync;
 
 namespace TursoSync.Tests;
 
@@ -80,7 +80,7 @@ public class TursoSyncHttpMessageTests
             "GET", "https://example.turso.io/info", body: null, NoHeaders, authToken: "secret-token", host: null);
 
         message.Headers.GetValues("Authorization").Should().ContainSingle().Which.Should().Be("Bearer secret-token");
-        message.Headers.GetValues("User-Agent").Should().ContainSingle().Which.Should().Be("tweed-turso");
+        message.Headers.GetValues("User-Agent").Should().ContainSingle().Which.Should().Be("tursosync");
     }
 
     [TestMethod]

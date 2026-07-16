@@ -2,13 +2,13 @@ using System.Net.Http;
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace Turso;
+namespace Turso.Sync;
 
 /// <summary>
 /// A synced Turso database and the host-driven IO loop that powers it. Ported from the Go binding's
 /// <c>driver_sync.go</c>: every async engine operation is driven by <see cref="DriveOpUntilDone"/>, which
 /// resumes the operation and, whenever the engine asks for IO, executes the requested HTTP / file work and
-/// feeds the result back. Tweed is the <i>host</i> — the engine never does network or disk itself.
+/// feeds the result back. This provider is the <i>host</i> — the engine never does network or disk itself.
 /// </summary>
 public sealed class TursoSyncDatabase : IDisposable
 {
@@ -580,7 +580,7 @@ public sealed class TursoSyncDatabase : IDisposable
 
         if (!message.Headers.Contains("User-Agent"))
         {
-            message.Headers.TryAddWithoutValidation("User-Agent", "tweed-turso");
+            message.Headers.TryAddWithoutValidation("User-Agent", "tursosync");
         }
 
         message.Headers.Host = host;

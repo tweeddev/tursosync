@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace Turso;
+namespace Turso.Sync;
 
 /// <summary>
 /// Resolves the <c>turso_sync_sdk_kit</c> native library. Until we pack per-RID natives into the NuGet,

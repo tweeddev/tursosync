@@ -2,7 +2,7 @@ using System.Data;
 using System.Data.Common;
 using System.Diagnostics.CodeAnalysis;
 
-namespace Turso;
+namespace Turso.Sync;
 
 /// <summary>
 /// A <see cref="DbCommand"/> over a Turso connection. Mirrors the official <c>Turso.Data</c> command:

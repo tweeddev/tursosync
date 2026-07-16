@@ -2,7 +2,7 @@ using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace Turso;
+namespace Turso.Sync;
 
 // Native callback signatures + value marshaling for user-defined functions, aggregates and collations.
 // Ported from the official Turso.Data binding so the surface is at parity.

@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace Turso;
+namespace Turso.Sync;
 
 /// <summary>
 /// Marshals a <see cref="TursoSyncConfig"/> into the native <see cref="TursoDatabaseConfig"/>, including

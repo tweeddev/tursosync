@@ -2,11 +2,11 @@ using System.Data.Common;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 
-namespace Turso;
+namespace Turso.Sync;
 
 /// <summary>
 /// Strongly-typed connection-string builder for Turso, mirroring the official <c>Turso.Data</c> builder's
-/// keyword normalization and adding the sync-engine keys Tweed needs (<c>Remote Url</c>, <c>Auth Token</c>,
+/// keyword normalization and adding the sync-engine keys this provider needs (<c>Remote Url</c>, <c>Auth Token</c>,
 /// <c>Namespace</c>, <c>Bootstrap</c>, <c>Busy Timeout</c>).
 /// </summary>
 public sealed class TursoConnectionStringBuilder : DbConnectionStringBuilder
@@ -196,7 +196,7 @@ public sealed class TursoConnectionStringBuilder : DbConnectionStringBuilder
             RemoteUrl = NullIfEmpty(GetOption("Remote Url")),
             AuthToken = NullIfEmpty(GetOption("Auth Token")),
             Namespace = NullIfEmpty(GetOption("Namespace")),
-            ClientName = NullIfEmpty(GetOption("Client Name")) ?? "tweed-turso",
+            ClientName = NullIfEmpty(GetOption("Client Name")) ?? "tursosync",
             BootstrapIfEmpty = GetBool("Bootstrap"),
             LongPollTimeoutMs = GetInt("Long Poll Timeout", 0),
             BusyTimeoutMs = GetInt("Busy Timeout", 5000),

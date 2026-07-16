@@ -4,7 +4,7 @@ using System.Net.Http;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
-using Turso;
+using Turso.Sync;
 
 namespace TursoSync.Tests;
 
@@ -148,7 +148,7 @@ public class LiveSyncIntegrationTests
 
     private static string TempDb()
     {
-        var dir = Path.Combine(Path.GetTempPath(), "tweed-turso-livesync-" + Guid.NewGuid().ToString("n"));
+        var dir = Path.Combine(Path.GetTempPath(), "tursosync-livesync-" + Guid.NewGuid().ToString("n"));
         Directory.CreateDirectory(dir);
         return Path.Combine(dir, "store.db");
     }
@@ -194,7 +194,7 @@ public class LiveSyncIntegrationTests
             Exception? last = null;
             for (var attempt = 0; attempt < 5; attempt++)
             {
-                var workDir = Path.Combine(Path.GetTempPath(), "tweed-turso-server-" + Guid.NewGuid().ToString("n"));
+                var workDir = Path.Combine(Path.GetTempPath(), "tursosync-server-" + Guid.NewGuid().ToString("n"));
                 Directory.CreateDirectory(workDir);
                 var server = new LocalSyncServer(FreePort(), workDir);
                 try
