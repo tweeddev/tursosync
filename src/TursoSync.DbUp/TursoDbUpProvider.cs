@@ -136,8 +136,12 @@ public sealed class TursoTableJournal : TableJournal
 )";
 
     /// <inheritdoc/>
+    // COLLATE NOCASE: SQLite table names are case-insensitive, and the Turso engine case-folds identifier
+    // names in sqlite_master (real SQLite preserves the CREATE-statement case). Without NOCASE this lookup
+    // misses the journal table on any connection after the one that created it, so DbUp re-issues CREATE and
+    // fails with "table already exists" — breaking every migration run after the first.
     protected override string DoesTableExistSql() =>
-        $"SELECT count(name) FROM sqlite_master WHERE type = 'table' AND name = '{UnquotedSchemaTableName}'";
+        $"SELECT count(name) FROM sqlite_master WHERE type = 'table' AND name = '{UnquotedSchemaTableName}' COLLATE NOCASE";
 }
 
 /// <summary>Executes scripts against a Turso database, surfacing <see cref="TursoException"/> with context.</summary>

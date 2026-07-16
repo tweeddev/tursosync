@@ -95,7 +95,7 @@ if [[ "$run_test" -eq 1 ]]; then
 </Project>
 XML
   cat > "$app/Program.cs" <<'CS'
-using Turso;
+using Turso.Sync;
 var path = Path.Combine(Path.GetTempPath(), "tursosync-consume-" + Guid.NewGuid().ToString("n"), "t.db");
 Directory.CreateDirectory(Path.GetDirectoryName(path)!);
 using var c = new TursoConnection($"Data Source={path}");
