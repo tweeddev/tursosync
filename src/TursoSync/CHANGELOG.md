@@ -1,5 +1,92 @@
 # TursoSync
 
+## 1.1.0
+### Minor Changes
+
+- Surface lock contention as `TursoException.IsBusy` so callers can tell a retryable busy from a real error.
+  
+  `Check` threw on the engine's error pointer *before* looking at the status code, so a `Busy` result was
+  reported as a plain message with the status discarded — leaving string-matching on "database is locked" as
+  the only way to classify it. The status is now carried on the exception in both branches.
+  
+  `IsBusy` and `IsBusySnapshot` are deliberately mutually exclusive. The engine treats them as different
+  failures: plain `Busy` is lock contention worth retrying, while `BusySnapshot` means a checkpoint advanced the
+  WAL and the read snapshot is permanently stale — "Retrying with busy_timeout will NEVER HELP", the transaction
+  has to be rolled back and restarted. Both are also matched on message text, because contention sometimes
+  arrives with a generic status and an explanatory string rather than the dedicated code.
+  
+  This does not retry anything. A concurrent checkpoint currently fails statements outright rather than making
+  them wait: measured with one writer and a checkpoint every 100 ms, a contended `prepare_single` fails in ~3
+  microseconds (median) whether the connection's busy timeout is 200 ms or 5000 ms — 25x the budget, identical
+  time-to-failure — so the engine's busy handler is not consulted on that path. Without a checkpoint running,
+  a concurrent writer produces no contention failures at all. `TursoBusyTimeoutTests` pins this so that a fix
+  in the engine flips the assertion.
+  
+  A managed retry loop was tried and reverted: waiting out the busy means holding native statement state across
+  a live checkpoint, and the workload stops draining entirely (a 3-second probe arm ran indefinitely at 165%
+  CPU, versus 3.0 s with retry off). The rationale is recorded in `TursoRawConnection` so it is not
+  reintroduced. The real fix belongs in the engine, next to the lock it needs to wait on.
+  
+- Typed error kinds, a normalized pool key, a configurable idle cap, and leak visibility.
+  
+  `TursoException.Kind` (`TursoErrorKind`) exposes the engine's own classification — `Constraint`, `ReadOnly`,
+  `DatabaseFull`, `Corrupt`, `NotADatabase`, `Io`, `Interrupted`, `Busy`, `BusySnapshot` — so a caller can tell a
+  unique-key violation from a real fault without matching on message text. `IsBusy`/`IsBusySnapshot` are now
+  derived from it.
+  
+  Physical connections are pooled under a key built from the PARSED connection string rather than its raw text.
+  The base builder normalizes keywords but not values, so `Sync=true` and `SYNC=True` previously keyed two
+  separate pools for one connection, each keeping its own idle set; paths are resolved to full paths for the
+  same reason. Only settings that make two connections non-interchangeable are part of the key.
+  
+  `Max Idle Connections` (aliases: `MaxIdleConnections`, `Max Pool Size`, `MaxPoolSize`) makes the per-key idle
+  cap configurable, defaulting to the previous hard-coded 4.
+  
+  Renting no longer re-runs the health probe on a connection returned within the last second — it was proven
+  healthy on the way in, and the probe is a full round trip on every checkout for consumers that open a
+  connection per operation.
+  
+  `TursoConnection.OpenReplicas` lists the replicas currently held open and how many connections hold each. One
+  sync engine is shared per replica and lives until its last connection is disposed, so a connection that is
+  never closed pins its replica for the life of the process and no amount of `ClearPool()` will release its
+  files; asserting this list is empty at shutdown catches that.
+  
+
+### Patch Changes
+
+- Fix a connection-pool leak, and stop treating lock contention as a dead connection.
+  
+  `Rent` dequeued an idle connection and, if the health probe rejected it, returned it to nobody — the
+  connection was dropped without being disposed. That always leaked the native connection; with connections now
+  sharing a sync engine per replica it also leaked the engine reference, so the refcount never reached zero, the
+  replica's files stayed open for the life of the process, and `ClearPool()` could no longer release them for
+  `RemoteAttach` to move. `Rent` now disposes rejected connections and keeps draining the queue instead of
+  falling straight through to opening a new one.
+  
+  `IsUsable` treated every exception as a dead connection, including `database is locked`. A checkpoint fails
+  concurrent statements — the probe included — so the whole pool was discarded and rebuilt at exactly the moment
+  it was most contended, against an engine that was still busy. Contention (`IsBusy`/`IsBusySnapshot`) now
+  counts as healthy; only real failures retire a connection.
+  
+- Share one sync engine per replica file set instead of creating one per connection.
+  
+  `TursoPhysicalConnection.Create` called `TursoSyncDatabase.Create` for every physical connection, so a pool
+  holding up to `MaxIdlePerKey` connections ran that many independent sync engines over a single replica — each
+  owning and fragmenting the same WAL. Connections now acquire a reference-counted, shared engine
+  (`TursoSyncDatabaseCache`) and open over it via `TursoSyncDatabase.Connect`, which is what that API is for.
+  The engine is disposed when its last connection goes, so pooled connections keep it warm and `ClearPool()`
+  still releases the replica's file handles.
+  
+  Measured against a live remote on a 13.8 MB WAL under 25 s of 4-way concurrent load with a checkpoint/push
+  loop underneath. Engine per connection: 10,626 statements, 745,096 errors, 86 failed checkpoints, and
+  `sync_database_create ... database tape error: database is busy` — connections that could not be opened at
+  all while another engine was active. Shared engine, same load through the ADO.NET surface: 10,260 statements,
+  125 errors, zero failed checkpoints, and no open-time failures whatsoever.
+  
+  Opening a replica against a different remote than the one it is already open against is now rejected with a
+  clear error rather than silently handed an engine bound elsewhere.
+  
+
 ## 1.0.1
 
 ## 1.0.0
