@@ -102,11 +102,23 @@ jobs:
           cargo build --manifest-path turso/Cargo.toml -p turso_sync_sdk_kit --features turso_sdk_kit/fts --release
           mkdir -p turso-bin
           # cdylib name varies by OS (lib*.so / lib*.dylib / *.dll); copy whichever exists.
+          # nullglob so a pattern matching nothing disappears rather than being passed through
+          # literally: with `[ -f "$f" ] && cp ...` as the last command in the step, the
+          # always-unmatched pattern (.dll off Windows) made the step exit 1 even though the
+          # build had succeeded.
+          shopt -s nullglob
+          copied=0
           for f in turso/target/release/*turso_sync_sdk_kit*.so \
                    turso/target/release/*turso_sync_sdk_kit*.dylib \
                    turso/target/release/*turso_sync_sdk_kit*.dll; do
-            [ -f "$f" ] && cp "$f" turso-bin/
+            cp "$f" turso-bin/
+            copied=1
           done
+          # Still fail loudly if the build genuinely produced nothing to copy.
+          if [ "$copied" -ne 1 ]; then
+            echo "No turso_sync_sdk_kit cdylib found under turso/target/release" >&2
+            exit 1
+          fi
 
       - name: Download tursodb sync server (prebuilt release artifact)
         if: steps.turso-bin.outputs.cache-hit != 'true'
