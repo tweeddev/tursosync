@@ -15,7 +15,7 @@ namespace TursoSync.Tests;
 /// uses via <c>LOCAL_SYNC_SERVER</c>. These are the package's reason to exist, so they run for real rather
 /// than skip when the infra is present.
 ///
-/// Gated on <c>TURSOSYNC_SYNC_SERVER</c> pointing at a <c>tursodb</c> binary (CI sets it after building the
+/// Gated on <c>TURSOSYNC_TEST_SYNC_SERVER</c> pointing at a <c>tursodb</c> binary (CI sets it after building the
 /// engine; locally, build the CLI and export it). Absent that — or the native — the tests skip (Inconclusive)
 /// rather than silently pass. The external-cloud round-trip stays in <see cref="TursoSyncBehaviorTests"/>.
 /// </summary>
@@ -140,7 +140,7 @@ public class LiveSyncIntegrationTests
         if (server is null)
         {
             Assert.Inconclusive(
-                "Set TURSOSYNC_SYNC_SERVER to a `tursodb` binary to run the live-sync integration tests.");
+                "Set TURSOSYNC_TEST_SYNC_SERVER to a `tursodb` binary to run the live-sync integration tests.");
         }
 
         return server!;
@@ -182,10 +182,10 @@ public class LiveSyncIntegrationTests
 
         public string BaseUrl => $"http://localhost:{_port}";
 
-        /// <summary>Start a server, or return null when <c>TURSOSYNC_SYNC_SERVER</c> is unset/missing.</summary>
+        /// <summary>Start a server, or return null when <c>TURSOSYNC_TEST_SYNC_SERVER</c> is unset/missing.</summary>
         public static LocalSyncServer? TryStart()
         {
-            var bin = Environment.GetEnvironmentVariable("TURSOSYNC_SYNC_SERVER");
+            var bin = Environment.GetEnvironmentVariable("TURSOSYNC_TEST_SYNC_SERVER");
             if (string.IsNullOrWhiteSpace(bin) || !File.Exists(bin))
             {
                 return null;

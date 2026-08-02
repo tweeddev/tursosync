@@ -28,6 +28,27 @@ public sealed class TursoRawConnection : IDisposable
         _pump = pump;
     }
 
+    // NOTE — a managed busy-retry was tried here on 2026-08-01 and REVERTED; do not reintroduce it without
+    // reading this. Confirmed against the engine source in reference/turso-main:
+    //
+    //  * The busy handler is real and it works, but it lives in Statement::step (core/statement.rs). On a busy
+    //    step it invokes the handler and, if the handler says wait, converts the result to StepResult::IO and
+    //    yields — so the wait is driven by the caller's IO pump, which Step() below already does. Genuine
+    //    Busy during step is therefore handled correctly today.
+    //  * It is NOT consulted while preparing. A contended prepare_single returns Busy straight away, which is
+    //    why TursoBusyTimeoutTests measures a ~3 microsecond median time-to-failure whether the connection's
+    //    busy timeout is 200 ms or 5000 ms. That gap belongs in the engine's prepare path, not here.
+    //  * BusySnapshot is a DIFFERENT error and must never be retried in place. The engine is explicit:
+    //    "Retrying with busy_timeout will NEVER HELP" (core/storage/wal.rs) — a checkpoint advanced the WAL,
+    //    the read snapshot is permanently stale, and only rolling back and restarting the transaction gets a
+    //    fresh one.
+    //
+    // The reverted retry ignored that last point: it reset and re-stepped on the same stale snapshot, so every
+    // contended statement spun until its deadline instead of ever succeeding. With a checkpoint every 100 ms a
+    // 3-second probe arm ran indefinitely at 165% CPU, versus 3.0 s with retry off (650 ok / 55,740 busy).
+    // Retry-off + no checkpoint and retry-on + no checkpoint both complete cleanly — it is specifically
+    // retrying a stale snapshot underneath a checkpoint that wedges.
+
     /// <summary>The owning synced database, or null for a base (local, non-sync) connection.</summary>
     public TursoSyncDatabase? SyncDatabase => _syncDatabase;
 
@@ -41,7 +62,8 @@ public sealed class TursoRawConnection : IDisposable
     public static TursoRawConnection Open(TursoSyncDatabase database, int busyTimeoutMs = 5000)
     {
         ArgumentNullException.ThrowIfNull(database);
-        return new TursoRawConnection(database.Connect(busyTimeoutMs), database, IntPtr.Zero, database.ProcessOneIo);
+        return new TursoRawConnection(
+            database.Connect(busyTimeoutMs), database, IntPtr.Zero, database.ProcessOneIo);
     }
 
     /// <summary>
@@ -83,7 +105,8 @@ public sealed class TursoRawConnection : IDisposable
         }
     }
 
-    /// <summary>Prepare a single statement.</summary>
+    /// <summary>Prepare a single statement. Lock contention surfaces as a <see cref="TursoException"/> with
+    /// <see cref="TursoException.IsBusy"/> set — see the note above on why it is not retried here.</summary>
     public TursoRawStatement Prepare(string sql)
     {
         ThrowIfDisposed();
@@ -266,6 +289,8 @@ public sealed class TursoRawStatement : IDisposable
                     TursoSyncDatabase.Check(io, ioErr, "statement_run_io"); // …then local statement IO
                     continue;
                 default:
+                    // Contention surfaces to the caller with TursoException.IsBusy set; see the note in
+                    // TursoRawConnection on why it is deliberately not waited out here.
                     TursoSyncDatabase.Check(status, errorPtr, "statement_step");
                     return false; // unreachable
             }

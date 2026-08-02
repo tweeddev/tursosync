@@ -4,7 +4,7 @@ namespace TursoSync.Tests;
 
 /// <summary>
 /// Loads a repo-local <c>.env</c> into the process environment before any test runs, so the live-sync
-/// gates (<c>TURSOSYNC_SYNC_SERVER</c>, <c>TURSOSYNC_SYNC_URL</c>/<c>TURSOSYNC_SYNC_TOKEN</c>) can be
+/// gates (<c>TURSOSYNC_TEST_SYNC_SERVER</c>, <c>TURSOSYNC_TEST_REMOTE_URL</c>/<c>TURSOSYNC_TEST_REMOTE_TOKEN</c>) can be
 /// set without exporting them into the shell. Real environment variables always win — <see cref="DotNetEnv"/>
 /// is configured to not clobber values already present — so CI, which exports them, is unaffected.
 /// </summary>

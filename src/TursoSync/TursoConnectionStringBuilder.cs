@@ -36,6 +36,10 @@ public sealed class TursoConnectionStringBuilder : DbConnectionStringBuilder
         ["Long Poll Timeout"] = "Long Poll Timeout",
         ["LongPollTimeout"] = "Long Poll Timeout",
         ["Pooling"] = "Pooling",
+        ["Max Idle Connections"] = "Max Idle Connections",
+        ["MaxIdleConnections"] = "Max Idle Connections",
+        ["Max Pool Size"] = "Max Idle Connections",
+        ["MaxPoolSize"] = "Max Idle Connections",
         ["Sync"] = "Sync",
         ["Encryption Cipher"] = "Encryption Cipher",
         ["EncryptionCipher"] = "Encryption Cipher",
@@ -116,6 +120,55 @@ public sealed class TursoConnectionStringBuilder : DbConnectionStringBuilder
     {
         get => !ContainsKey("Pooling") || GetBool("Pooling");
         set => this["Pooling"] = value;
+    }
+
+    /// <summary>
+    /// Max idle physical connections kept for this connection string (default 4). Raise it for a workload
+    /// that opens many connections concurrently; a value of 0 or less falls back to the default.
+    /// </summary>
+    public int MaxIdleConnections
+    {
+        get => GetInt("Max Idle Connections", TursoConnectionPool.DefaultMaxIdlePerKey);
+        set => this["Max Idle Connections"] = value;
+    }
+
+    /// <summary>
+    /// The key physical connections are pooled under.
+    ///
+    /// <para>Built from the PARSED values, not the raw string: the base builder normalizes keywords but not
+    /// values, so <c>Sync=true</c> and <c>SYNC=True</c> would otherwise key two separate pools for one
+    /// connection. Paths are resolved to full paths for the same reason. Only settings that make two physical
+    /// connections non-interchangeable are included — <c>Max Idle Connections</c> and <c>Default Timeout</c>
+    /// are deliberately absent, since they change how a connection is managed or how commands behave, not
+    /// what the connection actually is.</para>
+    /// </summary>
+    internal string PoolKey
+    {
+        get
+        {
+            var path = DataSource;
+            if (!string.IsNullOrEmpty(path))
+            {
+                try { path = Path.GetFullPath(path); }
+                catch { /* unresolvable path: key on it as written rather than fail an open */ }
+            }
+
+            // "\u001f" is a unit separator, which cannot occur in any of these values, so distinct
+            // fields can never run together into the same key.
+            return string.Join(
+                "\u001f",
+                path,
+                RemoteUrl,
+                AuthToken,
+                Namespace,
+                GetOption("Client Name"),
+                Bootstrap ? "1" : "0",
+                BusyTimeout.ToString(CultureInfo.InvariantCulture),
+                LongPollTimeout.ToString(CultureInfo.InvariantCulture),
+                Sync ? "1" : "0",
+                EncryptionCipher,
+                EncryptionKey);
+        }
     }
 
     /// <summary>

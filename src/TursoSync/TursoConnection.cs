@@ -64,6 +64,16 @@ public sealed class TursoConnection : DbConnection
     /// <summary>Dispose and drop all pooled physical connections (test isolation / shutdown).</summary>
     public static void ClearPool() => TursoConnectionPool.Clear();
 
+    /// <summary>
+    /// Replicas whose sync engine is currently held open, with the number of connections holding each.
+    ///
+    /// <para>One engine is shared per replica file set and lives until its last connection is disposed — which
+    /// is what releases the replica's file handles. A <see cref="TursoConnection"/> that is never closed
+    /// therefore pins its replica for the life of the process, and no amount of <see cref="ClearPool"/> will
+    /// free it. Assert this is empty after closing everything to catch that.</para>
+    /// </summary>
+    public static IReadOnlyList<TursoOpenReplica> OpenReplicas => TursoSyncDatabaseCache.Snapshot();
+
     internal int DefaultTimeout => _options.DefaultTimeout;
 
     internal bool ReadUncommitted
@@ -87,7 +97,7 @@ public sealed class TursoConnection : DbConnection
         // store opens per operation — so pool physical connections by default, like Npgsql/SQLite do. Lane
         // selection (base vs sync) happens inside the physical connection: no remote → base local fast path.
         _physical = _options.Pooling
-            ? TursoConnectionPool.Rent(_options.ConnectionString, config, _options.Sync)
+            ? TursoConnectionPool.Rent(_options.PoolKey, config, _options.Sync)
             : TursoPhysicalConnection.Create(config, _options.Sync);
     }
 
@@ -106,7 +116,7 @@ public sealed class TursoConnection : DbConnection
         {
             if (_options.Pooling)
             {
-                TursoConnectionPool.Return(_options.ConnectionString, _physical);
+                TursoConnectionPool.Return(_options.PoolKey, _physical, _options.MaxIdleConnections);
             }
             else
             {

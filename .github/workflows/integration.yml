@@ -137,7 +137,7 @@ jobs:
           echo "TURSOSYNC_NATIVE_DIR=${{ github.workspace }}/turso-bin" >> "$GITHUB_ENV"
           exe=""
           [ "${{ runner.os }}" = "Windows" ] && exe=".exe"
-          echo "TURSOSYNC_SYNC_SERVER=${{ github.workspace }}/turso-bin/tursodb$exe" >> "$GITHUB_ENV"
+          echo "TURSOSYNC_TEST_SYNC_SERVER=${{ github.workspace }}/turso-bin/tursodb$exe" >> "$GITHUB_ENV"
 
       - name: Restore
         run: dotnet restore TursoSync.slnx

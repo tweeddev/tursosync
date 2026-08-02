@@ -19,6 +19,47 @@ public sealed record TursoStats(
     long NetworkReceivedBytes,
     string Revision);
 
+/// <summary>
+/// What kind of failure a <see cref="TursoException"/> represents, so callers can branch on the engine's own
+/// classification instead of matching on message text.
+/// </summary>
+public enum TursoErrorKind
+{
+    /// <summary>Not one of the categories below — inspect <see cref="Exception.Message"/>.</summary>
+    Unknown = 0,
+
+    /// <summary>Lock contention; the same operation is worth retrying. See <see cref="TursoException.IsBusy"/>.</summary>
+    Busy,
+
+    /// <summary>The read snapshot went stale; the transaction must be restarted, not retried.
+    /// See <see cref="TursoException.IsBusySnapshot"/>.</summary>
+    BusySnapshot,
+
+    /// <summary>The statement was interrupted.</summary>
+    Interrupted,
+
+    /// <summary>A constraint (unique, check, not-null, foreign key) was violated — a data error, not a fault.</summary>
+    Constraint,
+
+    /// <summary>The database is read-only.</summary>
+    ReadOnly,
+
+    /// <summary>The database is full.</summary>
+    DatabaseFull,
+
+    /// <summary>The file is not a database.</summary>
+    NotADatabase,
+
+    /// <summary>The database is corrupt.</summary>
+    Corrupt,
+
+    /// <summary>An IO failure.</summary>
+    Io,
+
+    /// <summary>The API was used incorrectly (a bug in the caller).</summary>
+    Misuse,
+}
+
 /// <summary>An error surfaced from the Turso native sync/SQL engine.</summary>
 public sealed class TursoException : Exception
 {
@@ -31,4 +72,57 @@ public sealed class TursoException : Exception
     public TursoException(string message, Exception inner) : base(message, inner)
     {
     }
+
+    internal TursoException(string message, TursoStatus status) : base(message)
+    {
+        Kind = Classify(message, status);
+    }
+
+    /// <summary>The engine's classification of this failure.</summary>
+    public TursoErrorKind Kind { get; }
+
+    /// <summary>
+    /// Map the native status to a public kind. Contention is also matched on message text because the engine
+    /// sometimes reports it with a generic status plus an explanatory string rather than the Busy code.
+    /// </summary>
+    private static TursoErrorKind Classify(string message, TursoStatus status) => status switch
+    {
+        TursoStatus.BusySnapshot => TursoErrorKind.BusySnapshot,
+        TursoStatus.Busy => TursoErrorKind.Busy,
+        TursoStatus.Interrupt => TursoErrorKind.Interrupted,
+        TursoStatus.Constraint => TursoErrorKind.Constraint,
+        TursoStatus.Readonly => TursoErrorKind.ReadOnly,
+        TursoStatus.DatabaseFull => TursoErrorKind.DatabaseFull,
+        TursoStatus.NotADatabase => TursoErrorKind.NotADatabase,
+        TursoStatus.Corrupt => TursoErrorKind.Corrupt,
+        TursoStatus.Io or TursoStatus.IoError => TursoErrorKind.Io,
+        TursoStatus.Misuse => TursoErrorKind.Misuse,
+        _ when message.Contains("snapshot is stale", StringComparison.OrdinalIgnoreCase)
+            => TursoErrorKind.BusySnapshot,
+        _ when message.Contains("database is locked", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("database is busy", StringComparison.OrdinalIgnoreCase)
+            => TursoErrorKind.Busy,
+        _ => TursoErrorKind.Unknown,
+    };
+
+    /// <summary>
+    /// True when this is plain lock contention — the caller lost a race for a lock and the same operation is
+    /// worth retrying once the lock frees.
+    ///
+    /// <para>Note the engine's busy handler covers <c>step</c> only: on a busy step it yields IO until the
+    /// connection's busy timeout elapses, which the statement loop drives. It is NOT consulted while
+    /// preparing, so a contended <c>prepare</c> surfaces here immediately regardless of the timeout
+    /// configured (measured in <c>TursoBusyTimeoutTests</c>).</para>
+    /// </summary>
+    public bool IsBusy => Kind is TursoErrorKind.Busy;
+
+    /// <summary>
+    /// True when the transaction's read snapshot went stale — typically because a checkpoint advanced the WAL
+    /// underneath it. Mutually exclusive with <see cref="IsBusy"/>, and the distinction matters: the engine is
+    /// explicit that "a busy_timeout or handler should not be used because it will not help — the snapshot is
+    /// permanently stale and rollback is the only way out for this poor transaction". Retrying the statement
+    /// in place spins until it gives up; the transaction has to be rolled back and restarted to get a fresh
+    /// snapshot.
+    /// </summary>
+    public bool IsBusySnapshot => Kind is TursoErrorKind.BusySnapshot;
 }

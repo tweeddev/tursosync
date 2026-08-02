@@ -517,7 +517,9 @@ public sealed class TursoSyncDatabase : IDisposable
         {
             var message = Marshal.PtrToStringUTF8(errorPtr);
             TursoNative.FreeString(errorPtr);
-            throw new TursoException($"{ctx}: {message}");
+            // Carry the status even when the engine attached a message — otherwise lock contention is
+            // indistinguishable from a genuine error and callers cannot know what is safe to retry.
+            throw new TursoException($"{ctx}: {message}", status);
         }
 
         if (status is TursoStatus.Ok or TursoStatus.Done or TursoStatus.Row)
@@ -525,7 +527,7 @@ public sealed class TursoSyncDatabase : IDisposable
             return;
         }
 
-        throw new TursoException($"{ctx}: status {status}");
+        throw new TursoException($"{ctx}: status {status}", status);
     }
 
     /// <summary>

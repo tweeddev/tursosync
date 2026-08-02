@@ -110,9 +110,9 @@ sync-lane at-rest encryption (base-lane encryption is supported).
 `rig test` (or `dotnet test`) runs the unit suite. The **live sync** suites are gated on environment
 variables and report `Inconclusive` (skip) when unset:
 
-- `LiveSyncIntegrationTests` — needs `TURSOSYNC_SYNC_SERVER` pointing at a `tursodb` binary; the harness
+- `LiveSyncIntegrationTests` — needs `TURSOSYNC_TEST_SYNC_SERVER` pointing at a `tursodb` binary; the harness
   starts a `tursodb --sync-server` on a free port per test.
-- `TursoSyncBehaviorTests` — needs `TURSOSYNC_SYNC_URL` (+ `TURSOSYNC_SYNC_TOKEN`) for a real Turso
+- `TursoSyncBehaviorTests` — needs `TURSOSYNC_TEST_REMOTE_URL` (+ `TURSOSYNC_TEST_REMOTE_TOKEN`) for a real Turso
   Cloud round-trip.
 
 Copy [.env.example](.env.example) to `.env` at the repo root and fill in what you have — the test project
