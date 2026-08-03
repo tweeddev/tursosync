@@ -96,6 +96,17 @@ public sealed record TursoSyncConfig
     /// <summary>Hex-encoded encryption key. Required when <see cref="EncryptionCipher"/> is set. Base-lane only — see <see cref="EncryptionCipher"/>.</summary>
     public string? EncryptionKey { get; init; }
 
+    /// <summary>
+    /// Enable the engine's experimental <c>index_method</c> feature — required for tantivy full-text search
+    /// (<c>CREATE INDEX … USING fts</c>, <c>fts_match</c>/<c>fts_score</c>/<c>fts_highlight</c>,
+    /// <c>OPTIMIZE INDEX</c>). Off by default; without it those statements fail to parse. Composes with
+    /// <see cref="EncryptionCipher"/> — both features are sent to the native together — so an FTS index
+    /// built inside an encrypted database is itself encrypted at rest.
+    /// <para><b>Experimental:</b> the feature is behind an engine flag and its behaviour/API may change with
+    /// engine bumps.</para>
+    /// </summary>
+    public bool ExperimentalIndexMethod { get; init; }
+
     /// <summary>True when local at-rest encryption is configured.</summary>
     public bool IsEncrypted => !string.IsNullOrWhiteSpace(EncryptionCipher);
 }

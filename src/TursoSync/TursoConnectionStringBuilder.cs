@@ -45,6 +45,8 @@ public sealed class TursoConnectionStringBuilder : DbConnectionStringBuilder
         ["EncryptionCipher"] = "Encryption Cipher",
         ["Encryption Key"] = "Encryption Key",
         ["EncryptionKey"] = "Encryption Key",
+        ["Experimental Index Method"] = "Experimental Index Method",
+        ["ExperimentalIndexMethod"] = "Experimental Index Method",
     };
 
     /// <summary>Create an empty builder.</summary>
@@ -167,7 +169,8 @@ public sealed class TursoConnectionStringBuilder : DbConnectionStringBuilder
                 LongPollTimeout.ToString(CultureInfo.InvariantCulture),
                 Sync ? "1" : "0",
                 EncryptionCipher,
-                EncryptionKey);
+                EncryptionKey,
+                ExperimentalIndexMethod ? "1" : "0");
         }
     }
 
@@ -200,6 +203,17 @@ public sealed class TursoConnectionStringBuilder : DbConnectionStringBuilder
     {
         EncryptionCipher = cipher.ToName();
         EncryptionKey = hexKey;
+    }
+
+    /// <summary>
+    /// Enable the experimental <c>index_method</c> feature — required for tantivy full-text search
+    /// (<c>CREATE INDEX … USING fts</c>, <c>fts_match/score/highlight</c>, <c>OPTIMIZE INDEX</c>). Off by
+    /// default. See <see cref="TursoSyncConfig.ExperimentalIndexMethod"/>.
+    /// </summary>
+    public bool ExperimentalIndexMethod
+    {
+        get => GetBool("Experimental Index Method");
+        set => this["Experimental Index Method"] = value;
     }
 
     /// <inheritdoc/>
@@ -255,6 +269,7 @@ public sealed class TursoConnectionStringBuilder : DbConnectionStringBuilder
             BusyTimeoutMs = GetInt("Busy Timeout", 5000),
             EncryptionCipher = NullIfEmpty(GetOption("Encryption Cipher")),
             EncryptionKey = NullIfEmpty(GetOption("Encryption Key")),
+            ExperimentalIndexMethod = GetBool("Experimental Index Method"),
         };
     }
 

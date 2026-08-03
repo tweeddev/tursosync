@@ -55,11 +55,41 @@ dotnet add package TursoSync.Dapper   # optional: Dapper type handlers
 - **Extensibility:** `CreateFunction` / `CreateAggregate` / `CreateCollation` / `EnableExtensions` /
   `LoadExtension`.
 - **Local at-rest encryption:** `…;Encryption Cipher=aes256gcm;Encryption Key=<hex>`.
+- **Full-text search (tantivy):** `…;Experimental Index Method=true` enables `CREATE INDEX … USING fts`.
+  Composes with encryption — the index lives inside the database file, so it's encrypted at rest too.
 
 ## Connection string keys
 
 `Data Source` (required) · `Remote Url` · `Auth Token` · `Namespace` · `Bootstrap` · `Sync` · `Pooling`
-· `Busy Timeout` · `Long Poll Timeout` · `Encryption Cipher` · `Encryption Key`.
+· `Busy Timeout` · `Long Poll Timeout` · `Encryption Cipher` · `Encryption Key`
+· `Experimental Index Method`.
+
+## Full-text search
+
+Tantivy FTS is behind the engine's experimental `index_method` feature, so opt in with
+`Experimental Index Method=true` (or `TursoSyncConfig.ExperimentalIndexMethod`). Without it,
+`USING fts` fails to parse.
+
+```csharp
+await using var conn = new TursoConnection(
+    "Data Source=app.db;Experimental Index Method=true");
+await conn.OpenAsync();
+
+conn.ExecuteNonQuery("CREATE INDEX idx_articles ON articles USING fts (title, body)");
+
+// BM25-ranked search, with the matched terms highlighted.
+using var cmd = conn.CreateCommand();
+cmd.CommandText = """
+    SELECT id, fts_highlight(body, '<mark>', '</mark>', @q)
+    FROM articles
+    WHERE fts_match(title, body, @q)
+    ORDER BY fts_score(title, body, @q) DESC
+    """;
+```
+
+Tokenizers (`default`/`raw`/`simple`/`whitespace`/`ngram`) and per-column weights are set with
+`WITH (tokenizer = 'ngram', weights = 'title=2.0,body=1.0')`. Automatic segment merging is disabled —
+run `OPTIMIZE INDEX <name>` on a cadence (like `VACUUM`/`ANALYZE`) after bulk or continuous inserts.
 
 ## Native library
 
