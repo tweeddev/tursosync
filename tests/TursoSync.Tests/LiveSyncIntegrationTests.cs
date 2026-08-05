@@ -121,6 +121,132 @@ public class LiveSyncIntegrationTests
         }
     }
 
+    // ---- pre-attach strand + repair (the Tweed thread_checkpoint incident, generalized) ----------
+
+    [TestMethod]
+    public void LiveSync_Reconcile_TeachesServer_A_PreAttach_Table()
+    {
+        using var server = StartServerOrSkip();
+        var dbPath = TempDb();
+        try
+        {
+            // A local-only database with pre-attach history — the stranded state: the engine only
+            // replicates changes recorded after the remote is bound, so this table's DDL + rows are
+            // invisible to push.
+            using (var conn = TursoRawConnection.OpenLocal(new TursoSyncConfig { Path = dbPath }))
+            {
+                conn.Execute("CREATE TABLE pre (x TEXT)");
+                conn.Execute("CREATE INDEX ix_pre ON pre (x)");
+                conn.Execute("INSERT INTO pre VALUES ('a'), ('b'), ('c')");
+            }
+
+            // Attach the remote to the EXISTING file. Guard off in this arm: it observes and repairs the
+            // strand rather than asserting how this engine version treats the attach itself.
+            using var db = TursoSyncDatabase.Create(SyncConfig(dbPath, server) with
+            {
+                BootstrapIfEmpty = false,
+                SchemaGuard = TursoSchemaGuardMode.Off,
+            });
+            using (var conn = TursoRawConnection.Open(db))
+            {
+                if (!TursoSchemaGuard.UserTables(conn).Contains("pre"))
+                {
+                    Assert.Inconclusive("this engine version already dropped the pre-attach table at attach");
+                }
+            }
+
+            db.Push();
+
+            var report = db.ReconcileLocalTables();
+            report.RebuiltTables.Should().Contain("pre");
+            report.SkippedTables.Should().BeEmpty();
+            report.RowsCopied.Should().BeGreaterThanOrEqualTo(3);
+
+            // The proof: a FRESH replica bootstrapped from the remote now has the table, its rows, and its
+            // index — the server finally learned schema + data that predate the attach.
+            var freshPath = TempDb();
+            try
+            {
+                using var fresh = TursoSyncDatabase.Create(SyncConfig(freshPath, server));
+                using var conn = TursoRawConnection.Open(fresh);
+                conn.QueryScalar("SELECT count(*) FROM pre").Should().Be(3L);
+                conn.QueryScalar("SELECT count(*) FROM sqlite_master WHERE type='index' AND name='ix_pre'")
+                    .Should().Be(1L);
+            }
+            finally
+            {
+                Cleanup(freshPath);
+            }
+        }
+        finally
+        {
+            Cleanup(dbPath);
+        }
+    }
+
+    [TestMethod]
+    public void LiveSync_SchemaGuard_On_Attach_Either_Passes_Or_Detects_With_Backup()
+    {
+        using var server = StartServerOrSkip();
+        var dbPath = TempDb();
+        try
+        {
+            using (var conn = TursoRawConnection.OpenLocal(new TursoSyncConfig { Path = dbPath }))
+            {
+                conn.Execute("CREATE TABLE pre (x TEXT)");
+                conn.Execute("INSERT INTO pre VALUES ('guarded')");
+            }
+
+            // Attaching an existing replica is exactly the operation the guard watches. Whichever way this
+            // engine version behaves, the outcome must be safe: either the table survives the attach, or
+            // the guard throws — naming the table and holding a pre-attach backup it can be recovered from.
+            try
+            {
+                using var db = TursoSyncDatabase.Create(SyncConfig(dbPath, server) with
+                {
+                    BootstrapIfEmpty = false,
+                    SchemaGuard = TursoSchemaGuardMode.DetectAndBackup,
+                });
+                using var conn = TursoRawConnection.Open(db);
+                TursoSchemaGuard.UserTables(conn).Should().Contain("pre");
+            }
+            catch (TursoSchemaGuardException ex)
+            {
+                ex.Operation.Should().Be("create");
+                ex.DroppedTables.Should().Contain("pre");
+                ex.BackupDirectory.Should().NotBeNull();
+                TursoSchemaGuard.UserTablesOfCopy(Path.Combine(ex.BackupDirectory!, Path.GetFileName(dbPath)))
+                    .Should().Contain("pre");
+            }
+        }
+        finally
+        {
+            Cleanup(dbPath);
+        }
+    }
+
+    [TestMethod]
+    public void LiveSync_Pull_With_Guard_Passes_When_Nothing_Is_Dropped()
+    {
+        using var server = StartServerOrSkip();
+        server.ExecRemote("CREATE TABLE t (x TEXT)", "INSERT INTO t VALUES ('one')");
+
+        var dbPath = TempDb();
+        try
+        {
+            using var db = TursoSyncDatabase.Create(SyncConfig(dbPath, server)); // guard defaults to Detect
+            server.ExecRemote("CREATE TABLE added_later (y TEXT)", "INSERT INTO t VALUES ('two')");
+            db.Pull(); // additions must pass the guard silently
+            using var conn = TursoRawConnection.Open(db);
+            conn.QueryScalar("SELECT count(*) FROM t").Should().Be(2L);
+            TursoSchemaGuard.UserTables(conn).Should().Contain("added_later");
+        }
+        finally
+        {
+            Cleanup(dbPath);
+        }
+    }
+
     // ---- harness ---------------------------------------------------------------------------------
 
     private static TursoSyncConfig SyncConfig(string path, LocalSyncServer server) =>

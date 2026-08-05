@@ -107,6 +107,15 @@ public sealed record TursoSyncConfig
     /// </summary>
     public bool ExperimentalIndexMethod { get; init; }
 
+    /// <summary>
+    /// Schema protection around the sync operations that can rewrite local state (create/open of an
+    /// existing replica, applying pulled changes). Default <see cref="TursoSchemaGuardMode.Detect"/>:
+    /// a sync operation that drops local user tables throws <see cref="TursoSchemaGuardException"/>
+    /// instead of losing them silently. Only active when a remote is configured — a local-only database
+    /// never reconciles against a server. See <see cref="TursoSchemaGuardMode"/>.
+    /// </summary>
+    public TursoSchemaGuardMode SchemaGuard { get; init; } = TursoSchemaGuardMode.Detect;
+
     /// <summary>True when local at-rest encryption is configured.</summary>
     public bool IsEncrypted => !string.IsNullOrWhiteSpace(EncryptionCipher);
 }
