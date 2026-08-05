@@ -34,7 +34,11 @@ public class TursoFtsTests
     {
         await ExecAsync(conn, "CREATE TABLE articles (id INTEGER PRIMARY KEY, body TEXT NOT NULL)");
         await ExecAsync(conn, "CREATE INDEX idx_articles ON articles USING fts (body)");
-        await ExecAsync(conn, "INSERT INTO articles (id, body) VALUES (1, 'please find the invoice attached for payment')");
+        // Ranking invariant the {3, 1} assertions depend on: docs 1 and 3 both contain 'invoice' and
+        // 'payment' exactly once, but doc 1 is deliberately LONGER (13 tokens vs 7), so BM25 ranks doc 3
+        // strictly higher for both terms. When the bodies were equal length (both 7 tokens) the scores tied
+        // bit-for-bit and `ORDER BY fts_score DESC` flipped the order between runs — a real ~50% flake.
+        await ExecAsync(conn, "INSERT INTO articles (id, body) VALUES (1, 'please find the invoice attached for payment when you have a spare moment')");
         await ExecAsync(conn, "INSERT INTO articles (id, body) VALUES (2, 'want to grab lunch on friday')");
         await ExecAsync(conn, "INSERT INTO articles (id, body) VALUES (3, 'reminder: the invoice payment is now overdue')");
     }
