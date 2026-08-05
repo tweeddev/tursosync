@@ -10,13 +10,14 @@ namespace Turso.Sync;
 /// resumes the operation and, whenever the engine asks for IO, executes the requested HTTP / file work and
 /// feeds the result back. This provider is the <i>host</i> — the engine never does network or disk itself.
 /// </summary>
-public sealed class TursoSyncDatabase : IDisposable
+public sealed partial class TursoSyncDatabase : IDisposable
 {
     private readonly object _gate = new();
     private readonly HttpClient _http;
     private readonly string _baseUrl;
     private readonly string? _authToken;
     private readonly string? _namespace;
+    private TursoSyncConfig? _config;
     private IntPtr _db;
     private bool _disposed;
 
@@ -56,6 +57,13 @@ public sealed class TursoSyncDatabase : IDisposable
         var baseUrl = NormalizeUrl(config.RemoteUrl ?? "");
         var http = new HttpClient();
 
+        // Schema guard, pre-open: snapshot the existing replica's user tables BEFORE the sync engine touches
+        // the file — opening an existing replica against a remote can revert/reconcile local state, and a
+        // table the server never learned can be dropped in that reconciliation. The snapshot is taken from a
+        // temporary COPY of the files (never by opening the live file with the base engine, which would
+        // disturb the sync WAL bookkeeping). See TursoSchemaGuardMode.
+        var guard = GuardScope.BeforeCreate(config);
+
         // AsyncIo MUST be true for the sync engine so it hands IO to us instead of doing it itself.
         var (dbConfig, dbConfigPtrs) = TursoConfigMarshal.BuildDatabaseConfig(config, asyncIo: 1);
         var strings = new MarshaledStrings();
@@ -81,11 +89,15 @@ public sealed class TursoSyncDatabase : IDisposable
             TursoConfigMarshal.Free(dbConfigPtrs);
         }
 
-        var self = new TursoSyncDatabase(db, baseUrl.TrimEnd('/'), Trim(config.AuthToken), config.Namespace, http);
+        var self = new TursoSyncDatabase(db, baseUrl.TrimEnd('/'), Trim(config.AuthToken), config.Namespace, http)
+        {
+            _config = config,
+        };
         try
         {
             var op = self.Begin(TursoNative.SyncDatabaseCreate, "sync_database_create");
             self.DriveAndDeinit(op, "sync_database_create");
+            guard?.VerifyAfter(self, "create");
             return self;
         }
         catch
@@ -172,10 +184,15 @@ public sealed class TursoSyncDatabase : IDisposable
                 return false;
             }
 
+            // Schema guard, pre-apply: remember the user tables (and, in DetectAndBackup, copy the replica
+            // files) so a pulled change-set that drops local tables surfaces loudly. See TursoSchemaGuardMode.
+            var guard = GuardScope.BeforeApply(this);
+
             // apply_changes consumes the changes handle (even on failure) — do not deinit it ourselves.
             var status2 = TursoNative.SyncDatabaseApplyChanges(_db, changes, out var applyOp, out var errorPtr);
             Check(status2, errorPtr, "apply_changes");
             DriveAndDeinit(applyOp, "apply_changes");
+            guard?.VerifyAfter(this, "pull");
             return true;
         }
     }

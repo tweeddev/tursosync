@@ -47,6 +47,8 @@ public sealed class TursoConnectionStringBuilder : DbConnectionStringBuilder
         ["EncryptionKey"] = "Encryption Key",
         ["Experimental Index Method"] = "Experimental Index Method",
         ["ExperimentalIndexMethod"] = "Experimental Index Method",
+        ["Schema Guard"] = "Schema Guard",
+        ["SchemaGuard"] = "Schema Guard",
     };
 
     /// <summary>Create an empty builder.</summary>
@@ -170,7 +172,8 @@ public sealed class TursoConnectionStringBuilder : DbConnectionStringBuilder
                 Sync ? "1" : "0",
                 EncryptionCipher,
                 EncryptionKey,
-                ExperimentalIndexMethod ? "1" : "0");
+                ExperimentalIndexMethod ? "1" : "0",
+                SchemaGuard.ToString());
         }
     }
 
@@ -215,6 +218,22 @@ public sealed class TursoConnectionStringBuilder : DbConnectionStringBuilder
         get => GetBool("Experimental Index Method");
         set => this["Experimental Index Method"] = value;
     }
+
+    /// <summary>Schema protection around create/pull (default <see cref="TursoSchemaGuardMode.Detect"/>);
+    /// see <see cref="TursoSyncConfig.SchemaGuard"/>.</summary>
+    public TursoSchemaGuardMode SchemaGuard
+    {
+        get => ParseSchemaGuard(GetOption("Schema Guard"));
+        set => this["Schema Guard"] = value.ToString();
+    }
+
+    private static TursoSchemaGuardMode ParseSchemaGuard(string? value) =>
+        string.IsNullOrWhiteSpace(value)
+            ? TursoSchemaGuardMode.Detect
+            : Enum.TryParse<TursoSchemaGuardMode>(value, ignoreCase: true, out var mode)
+                ? mode
+                : throw new ArgumentException(
+                    $"Invalid 'Schema Guard' value '{value}' (expected Off, Detect or DetectAndBackup).");
 
     /// <inheritdoc/>
     [AllowNull]
@@ -267,6 +286,7 @@ public sealed class TursoConnectionStringBuilder : DbConnectionStringBuilder
             BootstrapIfEmpty = GetBool("Bootstrap"),
             LongPollTimeoutMs = GetInt("Long Poll Timeout", 0),
             BusyTimeoutMs = GetInt("Busy Timeout", 5000),
+            SchemaGuard = ParseSchemaGuard(GetOption("Schema Guard")),
             EncryptionCipher = NullIfEmpty(GetOption("Encryption Cipher")),
             EncryptionKey = NullIfEmpty(GetOption("Encryption Key")),
             ExperimentalIndexMethod = GetBool("Experimental Index Method"),
