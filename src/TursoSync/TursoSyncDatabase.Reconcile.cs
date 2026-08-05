@@ -1,17 +1,13 @@
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+
 namespace Turso.Sync;
 
 /// <summary>Options for <see cref="TursoSyncDatabase.ReconcileLocalTables"/>.</summary>
 public sealed record TursoReconcileOptions
 {
-    /// <summary>
-    /// False (default): rebuild only the local tables the server does not know — the ones stranded by
-    /// creating them before the remote was attached. True: rebuild EVERY local user table, which also
-    /// re-records rows that predate the attach in tables the server does know — the full "attached the
-    /// cloud later" repair. Rebuilding rewrites each table's rows through the synced connection, so expect
-    /// roughly two row-writes per row (staging + final) to travel to the server.
-    /// </summary>
-    public bool AllTables { get; init; }
-
     /// <summary>Push after a successful rebuild (default true), so the repair reaches the server at once.</summary>
     public bool PushAfter { get; init; } = true;
 
@@ -23,7 +19,8 @@ public sealed record TursoReconcileOptions
 }
 
 /// <summary>What <see cref="TursoSyncDatabase.ReconcileLocalTables"/> did.</summary>
-/// <param name="RebuiltTables">Tables rebuilt through the synced connection (DDL + rows now in CDC).</param>
+/// <param name="RebuiltTables">Tables whose schema was created on the server and whose rows were re-recorded
+/// through the synced connection (now in CDC, replicating on push).</param>
 /// <param name="SkippedTables">Tables that matched but were not rebuilt (unsupported shape — e.g. generated
 /// columns, or no retrievable DDL); listed so the caller knows the repair is incomplete.</param>
 /// <param name="RowsCopied">Total rows re-recorded across the rebuilt tables.</param>
@@ -35,20 +32,23 @@ public sealed record TursoReconcileResult(
 public sealed partial class TursoSyncDatabase
 {
     /// <summary>
-    /// Teach the server local tables it never learned. The sync engine only replicates changes recorded
-    /// AFTER a replica is bound to its remote, so schema and rows that existed before the attach are
-    /// stranded local-only — and a later revert/reconcile can silently DROP such tables to match the server
-    /// (the failure <see cref="TursoSchemaGuardMode"/> detects). This repairs the strand in place: each
-    /// affected table is rebuilt through the synced connection (stage rows → drop → re-create from its
-    /// original DDL → re-insert → re-create indexes and triggers), so the DDL and every row enter CDC and
-    /// replicate on the next push.
+    /// Teach the server local tables it never learned. The sync engine only replicates ROW changes recorded
+    /// after a replica is bound to its remote — DDL never travels, so a table created before the attach is
+    /// stranded local-only, its inserts can never push (<c>BATCH_STEP_ERROR: no such table</c>), and a later
+    /// revert/reconcile can silently DROP it locally to match the server (the failure
+    /// <see cref="TursoSchemaGuardMode"/> detects). This repairs the strand: each affected table's schema
+    /// (table + indexes + triggers) is created ON THE SERVER over the Hrana <c>/v2/pipeline</c> endpoint —
+    /// the same HTTP surface sync itself uses — and its rows are then re-recorded through the synced
+    /// connection (local drop + re-create emits no CDC; the fresh inserts do), so the next push replays them
+    /// into a table the server now has.
     /// </summary>
     /// <remarks>
-    /// The server's table set is read by bootstrapping a throwaway replica from the remote (network
-    /// required). Each table is rebuilt in its own transaction; a failure rolls that table back and
-    /// rethrows, leaving already-rebuilt tables done — re-running is safe. Tables with generated columns
-    /// are skipped (reported in <see cref="TursoReconcileResult.SkippedTables"/>): their re-insert would
-    /// need column surgery this deliberately avoids.
+    /// Network required (the server's table set is read via a throwaway bootstrap replica, and the DDL runs
+    /// remotely). Each table is rebuilt in its own local transaction with its rows materialized in memory
+    /// for the duration — a failure rolls that table back and rethrows; already-rebuilt tables stay done and
+    /// re-running is safe. Tables with generated columns are skipped (reported in
+    /// <see cref="TursoReconcileResult.SkippedTables"/>). Tables the server already knows are left alone:
+    /// re-recording their rows could collide with rows the server holds.
     /// </remarks>
     public TursoReconcileResult ReconcileLocalTables(TursoReconcileOptions? options = null)
     {
@@ -66,7 +66,7 @@ public sealed partial class TursoSyncDatabase
         using var connection = TursoRawConnection.Open(this);
         var local = TursoSchemaGuard.UserTables(connection);
         var known = new HashSet<string>(serverTables, StringComparer.OrdinalIgnoreCase);
-        var targets = options.AllTables ? local : local.Where(t => !known.Contains(t)).ToList();
+        var targets = local.Where(t => !known.Contains(t)).ToList();
 
         var rebuilt = new List<string>();
         var skipped = new List<string>();
@@ -80,7 +80,14 @@ public sealed partial class TursoSyncDatabase
                 continue;
             }
 
-            rowsCopied += Rebuild(connection, table, ddl);
+            var indexes = SchemaSqlsOn(connection, "index", table);
+            var triggers = SchemaSqlsOn(connection, "trigger", table);
+
+            // Server first: the table (+ its schema objects) must exist remotely BEFORE any of its row ops
+            // push, or the push batch fails. IF NOT EXISTS makes a re-run harmless.
+            ExecuteRemoteSql([ddl, .. indexes, .. triggers], idempotent: true);
+
+            rowsCopied += RerecordRows(connection, table, ddl, indexes, triggers);
             rebuilt.Add(table);
         }
 
@@ -93,38 +100,48 @@ public sealed partial class TursoSyncDatabase
     }
 
     /// <summary>
-    /// Rebuild one table through the synced connection so its schema + rows are freshly recorded in CDC.
-    /// Stage-drop-recreate rather than rename-recreate: RENAME can rewrite REFERENCES clauses in OTHER
-    /// tables to the temporary name, which would leave them pointing at a table this then drops. With
-    /// drop-and-recreate the original name never changes for the rest of the schema.
+    /// Re-record one table's rows so they enter CDC: materialize the rows, drop and re-create the table
+    /// locally (DDL emits no CDC — only the fresh inserts do), and insert them back, all in one local
+    /// transaction so a failure restores the original table.
     /// </summary>
-    private static long Rebuild(TursoRawConnection connection, string table, string ddl)
+    private static long RerecordRows(
+        TursoRawConnection connection, string table, string ddl,
+        IReadOnlyList<string> indexes, IReadOnlyList<string> triggers)
     {
-        // Index/trigger DDL is captured before the drop (DROP TABLE removes both), recreated after.
-        var indexes = SchemaSqlsOn(connection, "index", table);
-        var triggers = SchemaSqlsOn(connection, "trigger", table);
-        var staging = Quote("__tursosync_reconcile__" + table);
         var target = Quote(table);
+
+        var rows = new List<object?[]>();
+        int columns;
+        using (var select = connection.Prepare($"SELECT * FROM {target}"))
+        {
+            columns = -1;
+            while (select.Step())
+            {
+                if (columns < 0)
+                {
+                    columns = select.ColumnCount;
+                }
+
+                var row = new object?[columns];
+                for (var i = 0; i < columns; i++)
+                {
+                    row[i] = select.GetValue(i);
+                }
+
+                rows.Add(row);
+            }
+
+            if (columns < 0)
+            {
+                columns = select.ColumnCount;
+            }
+        }
 
         connection.Execute("BEGIN IMMEDIATE");
         try
         {
-            connection.Execute($"DROP TABLE IF EXISTS {staging}");
-            connection.Execute($"CREATE TABLE {staging} AS SELECT * FROM {target}");
             connection.Execute($"DROP TABLE {target}");
             connection.Execute(ddl);
-            long rows;
-            using (var insert = connection.Prepare($"INSERT INTO {target} SELECT * FROM {staging}"))
-            {
-                while (insert.Step())
-                {
-                    // no rows from an INSERT…SELECT; drain for completeness
-                }
-
-                rows = insert.RowsAffected;
-            }
-
-            connection.Execute($"DROP TABLE {staging}");
             foreach (var sql in indexes)
             {
                 connection.Execute(sql);
@@ -135,8 +152,27 @@ public sealed partial class TursoSyncDatabase
                 connection.Execute(sql);
             }
 
+            if (rows.Count > 0)
+            {
+                var placeholders = string.Join(", ", Enumerable.Range(1, columns).Select(i => "?" + i));
+                using var insert = connection.Prepare($"INSERT INTO {target} VALUES ({placeholders})");
+                foreach (var row in rows)
+                {
+                    insert.Reset();
+                    for (var i = 0; i < columns; i++)
+                    {
+                        insert.Bind(i + 1, row[i]);
+                    }
+
+                    while (insert.Step())
+                    {
+                        // no result rows from an INSERT; drain for completeness
+                    }
+                }
+            }
+
             connection.Execute("COMMIT");
-            return rows;
+            return rows.Count;
         }
         catch
         {
@@ -144,6 +180,58 @@ public sealed partial class TursoSyncDatabase
             throw;
         }
     }
+
+    /// <summary>
+    /// Execute SQL statements against the remote over the Hrana <c>/v2/pipeline</c> endpoint — the plain
+    /// HTTP SQL surface Turso Cloud and <c>tursodb --sync-server</c> both serve — with this database's base
+    /// URL, bearer token and namespace Host. <paramref name="idempotent"/> rewrites leading
+    /// <c>CREATE TABLE/INDEX/TRIGGER</c> to their <c>IF NOT EXISTS</c> forms so a re-run is harmless.
+    /// </summary>
+    private void ExecuteRemoteSql(IReadOnlyList<string> sqls, bool idempotent)
+    {
+        var statements = idempotent ? sqls.Select(MakeIfNotExists).ToList() : sqls.ToList();
+        var payload = JsonSerializer.Serialize(new
+        {
+            requests = statements.Select(sql => (object)new { type = "execute", stmt = new { sql } }).ToArray(),
+        });
+
+        using var content = new StringContent(payload, Encoding.UTF8, "application/json");
+        using var message = new HttpRequestMessage(HttpMethod.Post, JoinUrl(_baseUrl, "/v2/pipeline"))
+        {
+            Content = content,
+        };
+        if (!string.IsNullOrEmpty(_authToken))
+        {
+            message.Headers.TryAddWithoutValidation("Authorization", "Bearer " + _authToken);
+        }
+
+        message.Headers.Host = BuildHost(_baseUrl, _namespace);
+
+        using var response = _http.Send(message);
+        var body = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new TursoException($"remote pipeline: HTTP {(int)response.StatusCode}: {Truncate(body)}");
+        }
+
+        using var doc = JsonDocument.Parse(body);
+        foreach (var result in doc.RootElement.GetProperty("results").EnumerateArray())
+        {
+            if (result.GetProperty("type").GetString() != "ok")
+            {
+                throw new TursoException($"remote pipeline statement failed: {Truncate(body)}");
+            }
+        }
+    }
+
+    /// <summary>Rewrite a leading <c>CREATE TABLE/INDEX/UNIQUE INDEX/TRIGGER</c> to its
+    /// <c>IF NOT EXISTS</c> form (no-op when already present, or for any other statement).</summary>
+    internal static string MakeIfNotExists(string sql) =>
+        Regex.Replace(
+            sql,
+            @"^(\s*CREATE\s+(?:TABLE|(?:UNIQUE\s+)?INDEX|TRIGGER)\s+)(?!IF\s+NOT\s+EXISTS)",
+            "$1IF NOT EXISTS ",
+            RegexOptions.IgnoreCase | RegexOptions.Singleline);
 
     /// <summary>The server's user tables, read from a throwaway replica bootstrapped off the remote.</summary>
     private static List<string> FetchServerTables(TursoSyncConfig config, string? scratchDirectory)
@@ -200,4 +288,6 @@ public sealed partial class TursoSyncDatabase
     }
 
     private static string Quote(string identifier) => "\"" + identifier.Replace("\"", "\"\"") + "\"";
+
+    private static string Truncate(string body) => body.Length <= 500 ? body : body[..500] + "…";
 }

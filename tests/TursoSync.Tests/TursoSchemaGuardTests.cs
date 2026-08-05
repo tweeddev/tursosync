@@ -71,6 +71,26 @@ public class TursoSchemaGuardTests
             .SchemaGuard.Should().Be(TursoSchemaGuardMode.Detect);
     }
 
+    // ---- reconcile helpers -----------------------------------------------------------------------
+
+    [TestMethod]
+    public void MakeIfNotExists_Rewrites_Leading_Create_Statements()
+    {
+        TursoSyncDatabase.MakeIfNotExists("CREATE TABLE pre (x TEXT)")
+            .Should().Be("CREATE TABLE IF NOT EXISTS pre (x TEXT)");
+        TursoSyncDatabase.MakeIfNotExists("create index ix_pre ON pre (x)")
+            .Should().Be("create index IF NOT EXISTS ix_pre ON pre (x)");
+        TursoSyncDatabase.MakeIfNotExists("CREATE UNIQUE INDEX ux ON t (a)")
+            .Should().Be("CREATE UNIQUE INDEX IF NOT EXISTS ux ON t (a)");
+        TursoSyncDatabase.MakeIfNotExists("CREATE TRIGGER trg AFTER INSERT ON t BEGIN SELECT 1; END")
+            .Should().StartWith("CREATE TRIGGER IF NOT EXISTS trg");
+        // Already-idempotent and non-CREATE statements pass through untouched.
+        TursoSyncDatabase.MakeIfNotExists("CREATE TABLE IF NOT EXISTS pre (x TEXT)")
+            .Should().Be("CREATE TABLE IF NOT EXISTS pre (x TEXT)");
+        TursoSyncDatabase.MakeIfNotExists("INSERT INTO pre VALUES (1)")
+            .Should().Be("INSERT INTO pre VALUES (1)");
+    }
+
     // ---- local engine paths (native-gated, no server) --------------------------------------------
 
     [TestMethod]
