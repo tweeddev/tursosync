@@ -122,6 +122,24 @@ packages; live-sync integration tests added (item #2); sync-lane encryption guar
 into fast + gated-integration lanes with SHA-keyed binary caching; coverage 65%→82%; **`0.1.0` released
 (item #1)**._
 
+## Sync-state guard (2026-08-09, unreleased — changeset pending)
+
+The 2026-08-08 Tweed incident: an app bundling a different engine vintage rewrote a replica's `-info`
+sidecar; every later launch of the 1.3.0-based app then died in a **Rust panic → `abort()`** inside
+`turso_sync_operation_resume` during the first pull — a native abort no managed `catch` can reach, so the
+app crash-looped until the replica was quarantined by hand.
+
+Mitigation, in `TursoSyncStateGuard` (called from `TursoSyncDatabase.Create`, i.e. before the native engine
+touches any file): `-info` must be parseable JSON with metadata version `v1`, and a new `-tursosync` stamp
+sidecar records the native engine version (`turso_version()`) that last opened the DB — an older engine
+refuses to open a newer engine's state (serde ignores unknown fields, which is exactly how foreign state
+sneaks past the native parser). Violations throw `TursoSyncStateException` (subclass of the now-unsealed
+`TursoException`). Escape hatch `TURSOSYNC_IGNORE_STATE_GUARD=1`. Tests: `TursoSyncStateGuardTests`.
+
+**Open upstream gap:** the sdk-kit's `extern "C"` entry points don't `catch_unwind`, so any engine panic
+still aborts the host process. Worth raising on `tursodatabase/turso` — panics should surface as
+`TURSO_ERROR` like every other failure. The guard narrows the trigger surface; it can't close it.
+
 ## Gotchas learned
 
 - nuget.org **250 MB** package cap → strip natives (done).

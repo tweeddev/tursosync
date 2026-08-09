@@ -54,6 +54,11 @@ public sealed partial class TursoSyncDatabase : IDisposable
                 "through the base engine.");
         }
 
+        // Refuse foreign/unusable on-disk sync state HERE, with a typed exception, while the files are
+        // still untouched — the native engine's own response to it can be a panic that aborts the whole
+        // process (see TursoSyncStateGuard).
+        TursoSyncStateGuard.Validate(config.Path);
+
         var baseUrl = NormalizeUrl(config.RemoteUrl ?? "");
         var http = new HttpClient();
 
@@ -98,6 +103,8 @@ public sealed partial class TursoSyncDatabase : IDisposable
             var op = self.Begin(TursoNative.SyncDatabaseCreate, "sync_database_create");
             self.DriveAndDeinit(op, "sync_database_create");
             guard?.VerifyAfter(self, "create");
+            // The open succeeded — this engine version now owns the on-disk sync state.
+            TursoSyncStateGuard.Stamp(config.Path);
             return self;
         }
         catch

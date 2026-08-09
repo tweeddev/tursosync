@@ -61,7 +61,7 @@ public enum TursoErrorKind
 }
 
 /// <summary>An error surfaced from the Turso native sync/SQL engine.</summary>
-public sealed class TursoException : Exception
+public class TursoException : Exception
 {
     /// <summary>Create a <see cref="TursoException"/> with a message.</summary>
     public TursoException(string message) : base(message)
@@ -125,4 +125,23 @@ public sealed class TursoException : Exception
     /// snapshot.
     /// </summary>
     public bool IsBusySnapshot => Kind is TursoErrorKind.BusySnapshot;
+}
+
+/// <summary>
+/// The on-disk sync state next to a synced database (the <c>-info</c> metadata sidecar, or the
+/// engine-version stamp) is unusable by this engine — unparseable, an unsupported metadata version, or
+/// written by a <b>newer</b> engine than the one now opening it. Thrown BEFORE the native engine touches
+/// the files, precisely because the native layer's response to foreign state can be a Rust panic that
+/// aborts the whole process (observed 2026-08-08: <c>turso_sync_operation_resume</c> → <c>abort()</c>
+/// on state written by a different engine vintage). Catch it and decide policy: quarantine the local
+/// files and re-bootstrap from the remote, or surface the refusal. A subclass of
+/// <see cref="TursoException"/> so existing catch sites keep working.
+/// </summary>
+public sealed class TursoSyncStateException : TursoException
+{
+    /// <summary>Create a <see cref="TursoSyncStateException"/> for the state file at <paramref name="statePath"/>.</summary>
+    public TursoSyncStateException(string statePath, string message) : base(message) => StatePath = statePath;
+
+    /// <summary>Full path of the offending state file.</summary>
+    public string StatePath { get; }
 }

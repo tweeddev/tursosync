@@ -159,6 +159,10 @@ internal static class TursoNative
 
     // ---- base: database / connection / statement -------------------------------------------------
 
+    /// <summary>The engine's own version string (a pointer to a static C string — never freed).</summary>
+    [DllImport(Lib, EntryPoint = "turso_version", CallingConvention = CallingConvention.Cdecl)]
+    public static extern IntPtr Version();
+
     [DllImport(Lib, EntryPoint = "turso_database_new", CallingConvention = CallingConvention.Cdecl)]
     public static extern TursoStatus DatabaseNew(ref TursoDatabaseConfig config, out IntPtr database, out IntPtr errorPtr);
 
